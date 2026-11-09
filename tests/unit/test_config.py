@@ -112,6 +112,30 @@ def test_quick_mode_extends_the_full_configuration() -> None:
     assert quick.ml.learning_rate == full.ml.learning_rate
 
 
+def test_quick_mode_has_its_own_folder_for_everything_it_writes(project_root: Path) -> None:
+    """B3: the quick run must never write the versioned outputs of the full run."""
+    quick, full = load_config(CONFIG_DIR / "pipeline.quick.toml"), load_config()
+    sandbox = project_root / "data" / "quick"
+    for name in ("raw_dir", "interim_dir", "warehouse", "outputs_dir", "reports_dir", "dashboard_html", "readme"):
+        path = getattr(quick.paths, name)
+        assert sandbox in path.parents, f"{name} = {path} is outside data/quick"
+        assert path != getattr(full.paths, name)
+    assert Path(quick.source.local_path) == Path("data/quick/publication.csv")
+
+
+def test_the_quick_folder_is_not_versioned(project_root: Path) -> None:
+    ignored = (project_root / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert "data/quick/" in ignored
+
+
+def test_local_mode_without_a_file_is_a_configuration_error(tmp_path: Path) -> None:
+    override = write(tmp_path / "o.toml", '[source]\nmode = "local"\n')
+    with pytest.raises(ValueError, match=r"local_path.*local"):
+        load_config(overrides=override)
+    load_config(overrides=write(tmp_path / "ok.toml", '[source]\nmode = "local"\nlocal_path = "x.csv"\n'))
+    load_config(overrides=write(tmp_path / "http.toml", '[source]\nmode = "http"\nlocal_path = ""\n'))  # http does not use it
+
+
 def test_oilgas_config_selects_another_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     other = extending_full(tmp_path, "[scope]\nfirst_year = 2015\n")
     monkeypatch.setenv("OILGAS_CONFIG", str(other))

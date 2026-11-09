@@ -198,6 +198,8 @@ def _build_section(cls: type, data: Any, name: str) -> Any:
 def _check(cfg: PipelineConfig) -> None:
     if cfg.source.mode not in ("http", "local"):
         raise ValueError(f"[source] mode: expected 'http' or 'local', got {cfg.source.mode!r}")
+    if cfg.source.mode == "local" and not cfg.source.local_path.strip():
+        raise ValueError("[source] local_path: mode = 'local' needs the path of the publication file (the quick mode uses data/quick/publication.csv)")
     if cfg.backtest.n_workers < 1:
         raise ValueError(f"[backtest] n_workers: expected a positive integer, got {cfg.backtest.n_workers}")
 

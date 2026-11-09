@@ -231,9 +231,9 @@ $env:PYTHONPATH = "src"
 # Pruebas (sin las que necesitan la publicación real ni Docker)
 .venv\Scripts\python -m pytest -m "not real_data and not docker"
 
-# Prueba rápida de punta a punta sobre datos sintéticos (menos de 3 minutos)
-.venv\Scripts\python -m oilgas make-fixture $env:TEMP\fixture.csv
-# (poner source.local_path en una copia de config\pipeline.quick.toml)
+# Prueba rápida de punta a punta sobre datos sintéticos (menos de 3 minutos). Todo lo que lee y escribe
+# queda en data\quick\ (no se versiona): no toca el almacén, los Parquet, el HTML ni los reportes de la corrida real.
+.venv\Scripts\python -m oilgas make-fixture data\quick\publication.csv
 .venv\Scripts\python -m oilgas run --config config\pipeline.quick.toml
 
 # Corrida real: descarga la publicación (149 MB) y corre las nueve tareas

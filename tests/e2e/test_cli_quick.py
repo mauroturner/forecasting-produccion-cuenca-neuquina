@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -64,6 +65,38 @@ def test_two_runs_on_the_same_input_give_the_same_tables_apart_from_the_run_colu
         b = pd.read_parquet(root_b / "outputs/powerbi" / f"{table.name}.parquet")
         keep = [c for c in a.columns if c not in RUN_COLUMNS]
         pd.testing.assert_frame_equal(a[keep], b[keep], check_exact=True, obj=table.name)
+
+
+def fingerprint(root: Path) -> dict[str, tuple[int, int]]:
+    """Size and modification time of every file where the full run keeps its versioned and generated state."""
+    folders = [root / "outputs", root / "reports", root / "dashboard", root / "data" / "warehouse", root / "data" / "interim", root / "data" / "raw"]
+    files = [f for folder in folders if folder.exists() for f in folder.rglob("*") if f.is_file()]
+    files.append(root / "README.md")
+    return {f.relative_to(root).as_posix(): (f.stat().st_size, f.stat().st_mtime_ns) for f in files}
+
+
+def test_the_documented_quick_run_works_from_a_fresh_clone_and_writes_nothing_versioned() -> None:
+    """B3: the commands of the README, as a separate process, leave every versioned output as it was."""
+    sandbox = PROJECT / "data" / "quick"
+    assert not sandbox.exists(), "data/quick is left over from another run"
+    before = fingerprint(PROJECT)
+    try:
+        made = python_m("make-fixture", "data/quick/publication.csv", "--wells", "20", timeout=120)
+        assert made.returncode == 0, made.stderr
+        done = python_m("run", "--config", "config/pipeline.quick.toml")
+        assert done.returncode == 0, done.stderr
+        assert [line.split()[0] for line in done.stdout.splitlines() if line.strip()] == list(TASK_IDS)
+        assert (sandbox / "outputs" / "powerbi" / "fact_forecast.parquet").exists() and (sandbox / "dashboard" / "powerbi-design.html").exists()
+        assert fingerprint(PROJECT) == before
+    finally:
+        shutil.rmtree(sandbox, ignore_errors=True)
+
+
+def test_a_quick_configuration_without_its_file_says_so_instead_of_crashing(tmp_path: Path) -> None:
+    config = tmp_path / "local.toml"
+    config.write_text(f'extends = "{(PROJECT / "config" / "pipeline.toml").as_posix()}"\n[source]\nmode = "local"\n', encoding="utf-8")
+    done = python_m("run", "--config", str(config), timeout=60)
+    assert done.returncode == 2 and "local_path" in done.stderr and "PermissionError" not in done.stderr
 
 
 def test_the_module_answers_help_and_makes_a_fixture(tmp_path: Path) -> None:

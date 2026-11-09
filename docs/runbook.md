@@ -129,7 +129,7 @@ Remove-Item -Recurse data\warehouse, data\interim
 python -m oilgas run --adopt data\raw\produccin-de-pozos-de-gas-y-petrleo-no-convencional.csv
 ```
 
-`data/raw/` (el CSV y el manifiesto) no se borra. `data/warehouse/` y `data/interim/` se regeneran por completo y no se versionan (RNF09). Una corrida completa sobre la publicación real tarda unos 40 minutos (ver «Rendimiento» en `docs/model-card.md`); `--config config\pipeline.quick.toml` hace la versión rápida sobre un archivo local.
+`data/raw/` (el CSV y el manifiesto) no se borra. `data/warehouse/` y `data/interim/` se regeneran por completo y no se versionan (RNF09). Una corrida completa sobre la publicación real tarda unos 40 minutos (ver «Rendimiento» en `docs/model-card.md`); `--config config\pipeline.quick.toml` hace la versión rápida sobre una publicación sintética (`python -m oilgas make-fixture data\quick\publication.csv`) y escribe solo en `data/quick/`, sin tocar las salidas versionadas.
 
 ## R11 La URL del recurso cambió
 

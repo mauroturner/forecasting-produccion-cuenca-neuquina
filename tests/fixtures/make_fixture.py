@@ -399,6 +399,7 @@ def make_fixture(
 
 
 def _write_csv(path: Path, table: list[list[str]], encoding: str = "utf-8-sig") -> None:
+    Path(path).parent.mkdir(parents=True, exist_ok=True)  # `make-fixture data/quick/publication.csv` on a fresh clone
     with open(path, "w", encoding=encoding, newline="") as handle:
         csv.writer(handle, lineterminator="\n").writerows(table)
 

@@ -1,5 +1,6 @@
 # Generated state of the pipeline; never versioned (RNF09)
 data/warehouse/
+data/quick/
 data/interim/
 airflow/logs/
 airflow/.env
