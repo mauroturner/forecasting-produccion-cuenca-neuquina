@@ -65,7 +65,7 @@ RULES: dict[str, tuple[str, Severity]] = {
     "I03": ("Meses sin fila dentro del período de un pozo", Severity.INFO),
 }
 
-_SEVERITY_ES = {Severity.BLOCKING: "bloqueante", Severity.WARNING: "advertencia", Severity.INFO: "informativa"}
+SEVERITY_ES = {Severity.BLOCKING: "bloqueante", Severity.WARNING: "advertencia", Severity.INFO: "informativa"}
 # Attributes that belong to the well and must not change over its life (V18).
 _FIXED_TEXT = (
     "well_code", "province", "concession_code", "concession_name", "field_code", "field_name",
@@ -464,7 +464,7 @@ def _report_json(report: ValidationReport) -> str:
             {
                 "rule_id": r.rule_id,
                 "name_es": r.name_es,
-                "severity": _SEVERITY_ES[r.severity],
+                "severity": SEVERITY_ES[r.severity],
                 "status": r.status_es,
                 "rows_affected": r.rows_affected,
                 "wells_affected": r.wells_affected,
@@ -493,7 +493,7 @@ def _report_markdown(report: ValidationReport) -> str:
         "| --- | --- | --- | --- | ---: | ---: |",
     ]
     for r in report.results:
-        lines.append(f"| {r.rule_id} | {r.name_es} | {_SEVERITY_ES[r.severity]} | {r.status_es} | {r.rows_affected} | {r.wells_affected} |")
+        lines.append(f"| {r.rule_id} | {r.name_es} | {SEVERITY_ES[r.severity]} | {r.status_es} | {r.rows_affected} | {r.wells_affected} |")
     if report.not_evaluated:
         lines += ["", "## No evaluadas", "", "No se pudieron evaluar porque una regla bloqueante anterior falló: "
                   + ", ".join(report.not_evaluated) + "."]

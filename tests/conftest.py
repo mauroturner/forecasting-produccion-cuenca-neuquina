@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import shutil
 from collections.abc import Callable
+from datetime import date
 from pathlib import Path
 
 import pytest
 
+from oilgas.config import load_config
+from oilgas.validate import validate_file
 from tests.fixtures.make_fixture import FixtureTruth, make_fixture, make_malformed
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -57,3 +60,19 @@ def malformed(fixture_csv: Path, tmp_path: Path) -> Callable[[str], Path]:
         return make_malformed(fixture_csv, kind, tmp_path / f"{kind}.csv")
 
     return build
+
+
+@pytest.fixture(scope="session")
+def valid_outcome(fixture_csv: Path):
+    """(report, frame) of validating the valid fixture on 2025-01-15 as run 'r1'."""
+    return validate_file(fixture_csv, load_config(), None, "r1", date(2025, 1, 15))
+
+
+@pytest.fixture(scope="session")
+def valid_report(valid_outcome):
+    return valid_outcome[0]
+
+
+@pytest.fixture(scope="session")
+def valid_frame(valid_outcome):
+    return valid_outcome[1]
