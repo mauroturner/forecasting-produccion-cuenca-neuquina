@@ -76,3 +76,22 @@ def valid_report(valid_outcome):
 @pytest.fixture(scope="session")
 def valid_frame(valid_outcome):
     return valid_outcome[1]
+
+
+@pytest.fixture(scope="session")
+def warehouse_conn(tmp_path_factory: pytest.TempPathFactory, valid_frame):
+    """A warehouse with the valid fixture loaded (read only by the tests that use it)."""
+    from oilgas.warehouse import connect, load_validated_subset
+
+    conn = connect(tmp_path_factory.mktemp("session_wh") / "production.sqlite")
+    load_validated_subset(conn, valid_frame, "r1")
+    yield conn
+    conn.close()
+
+
+@pytest.fixture(scope="session")
+def fixture_panel(warehouse_conn):
+    """The dense series panel of the valid fixture (60 wells, 2018-01 to 2024-12)."""
+    from oilgas.series import build_panel
+
+    return build_panel(warehouse_conn)
