@@ -1,16 +1,22 @@
 # Airflow 3.4.0 with the LocalExecutor, from the official docker-compose.yaml of that version
 # (https://airflow.apache.org/docs/apache-airflow/3.4.0/docker-compose.yaml) with these changes:
 #   - LocalExecutor: no redis, no celery worker and no flower (less memory; one task at a time anyway);
-#   - build the image of this folder (Airflow plus the libraries of the pipeline) instead of using the plain one;
-#   - the project is mounted at /opt/oilgas and the pipeline reads it through PYTHONPATH and OILGAS_CONFIG;
+#   - build the image of Dockerfile (Airflow plus the libraries of the pipeline, with the same == pins as the command
+#     line) from the project folder instead of using the plain one;
+#   - the project is mounted at /opt/oilgas piece by piece: src/, sql/ and config/ read-only, and only data/, outputs/,
+#     reports/ and dashboard/ read-write; the pipeline reads it through PYTHONPATH and OILGAS_CONFIG;
+#   - the interface is published on 127.0.0.1 only, and the JWT secret, the Fernet key and the admin password have no
+#     default: the file refuses to start until .env sets them;
 #   - the example DAGs are off.
-# To run it: copy .env.example to .env, then `docker compose build`, `docker compose up airflow-init` and
-# `docker compose up -d`; the interface is http://localhost:8080 (user and password: airflow). It needs 4 GB of
-# memory for Docker, 8 GB recommended.
+# To run it: copy .env.example to .env and fill the three secrets (the file says how), then `docker compose build`,
+# `docker compose up airflow-init` and `docker compose up -d`; the interface is http://localhost:8080 (user airflow,
+# the password you set). It needs 4 GB of memory for Docker, 8 GB recommended.
 
 x-airflow-common:
   &airflow-common
-  build: .
+  build:
+    context: ..
+    dockerfile: airflow/Dockerfile
   image: oilgas-airflow:3.4.0
   env_file:
     - ${ENV_FILE_PATH:-.env}
@@ -19,11 +25,11 @@ x-airflow-common:
     AIRFLOW__CORE__EXECUTOR: LocalExecutor
     AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg://airflow:airflow@postgres/airflow
-    AIRFLOW__CORE__FERNET_KEY: ${FERNET_KEY:-}
+    AIRFLOW__CORE__FERNET_KEY: ${FERNET_KEY:?set FERNET_KEY in airflow/.env (see .env.example)}
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
     AIRFLOW__CORE__EXECUTION_API_SERVER_URL: 'http://airflow-apiserver:8080/execution/'
-    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET:-airflow_jwt_secret}
+    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET:?set AIRFLOW__API_AUTH__JWT_SECRET in airflow/.env (see .env.example)}
     AIRFLOW__API_AUTH__JWT_ISSUER: ${AIRFLOW__API_AUTH__JWT_ISSUER:-airflow}
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
     AIRFLOW_CONFIG: '/opt/airflow/config/airflow.cfg'
@@ -35,7 +41,13 @@ x-airflow-common:
     - ./logs:/opt/airflow/logs
     - ./config:/opt/airflow/config
     - ./plugins:/opt/airflow/plugins
-    - ..:/opt/oilgas
+    - ../src:/opt/oilgas/src:ro
+    - ../sql:/opt/oilgas/sql:ro
+    - ../config:/opt/oilgas/config:ro
+    - ../data:/opt/oilgas/data
+    - ../outputs:/opt/oilgas/outputs
+    - ../reports:/opt/oilgas/reports
+    - ../dashboard:/opt/oilgas/dashboard
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
     &airflow-common-depends-on
@@ -44,7 +56,7 @@ x-airflow-common:
 
 services:
   postgres:
-    image: postgres:16
+    image: postgres:16.9
     environment:
       POSTGRES_USER: airflow
       POSTGRES_PASSWORD: airflow
@@ -62,7 +74,7 @@ services:
     <<: *airflow-common
     command: api-server
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/monitor/health"]
       interval: 30s
@@ -135,7 +147,7 @@ services:
       _AIRFLOW_DB_MIGRATE: 'true'
       _AIRFLOW_WWW_USER_CREATE: 'true'
       _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-airflow}
-      _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-airflow}
+      _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:?set _AIRFLOW_WWW_USER_PASSWORD in airflow/.env (see .env.example)}
     user: "0:0"
 
   # `docker compose --profile debug run --rm airflow-cli airflow dags test oilgas_monthly_production`

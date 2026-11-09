@@ -8,6 +8,7 @@ of the project, and removes them at the end.
 
 from __future__ import annotations
 
+import base64
 import os
 import shutil
 import subprocess
@@ -26,7 +27,12 @@ pytestmark = pytest.mark.docker
 
 
 def docker(*args: str, timeout: int = 1800, check: bool = True) -> subprocess.CompletedProcess:
-    env = {**os.environ, "ENV_FILE_PATH": str(AIRFLOW / ".env.example"), "OILGAS_CONFIG": "/opt/oilgas/config/pipeline.docker-test.toml"}
+    secrets = {  # the compose file has no default for them (A1); throwaway values for a run that is removed at the end
+        "FERNET_KEY": base64.urlsafe_b64encode(b"oilgas-docker-test-key-0123456789"[:32]).decode(),
+        "AIRFLOW__API_AUTH__JWT_SECRET": "oilgas-docker-test-jwt-secret",
+        "_AIRFLOW_WWW_USER_PASSWORD": "oilgas-docker-test",
+    }
+    env = {**os.environ, **secrets, "ENV_FILE_PATH": str(AIRFLOW / ".env.example"), "OILGAS_CONFIG": "/opt/oilgas/config/pipeline.docker-test.toml"}
     return subprocess.run(["docker", *args], cwd=AIRFLOW, env=env, capture_output=True, text=True, timeout=timeout, check=check, encoding="utf-8")
 
 

@@ -15,6 +15,7 @@ import logging
 import re
 import shutil
 import time
+import traceback
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime, timedelta
@@ -22,6 +23,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 import pandas as pd
+import pyarrow.parquet as pq
 
 from oilgas.backtest import run_backtest
 from oilgas.config import PipelineConfig, load_config
@@ -212,6 +214,12 @@ def check_publication(ctx: RunContext) -> dict:
         _record(ctx, started_at=ctx.started_at.isoformat(timespec="seconds"), finished_at=_now_text(), status=status,
                 source_url=remote.url, source_etag=remote.etag, source_last_modified=remote.last_modified, source_size=remote.size, message=message)
         logger.info("run %s: %s", ctx.run_key, message)
+        # Power BI reads the exported files, not SQLite: a late publication must show up there too (RF20). Only the run
+        # table is rewritten, and only when the files were exported before; SQLite stays the record if this fails.
+        try:
+            _refresh_exports(ctx, html=False)
+        except Exception as refresh_error:
+            logger.warning("could not refresh the exported run table after an %s run: %s", status, refresh_error)
     return result
 
 
@@ -358,13 +366,34 @@ def report(ctx: RunContext) -> dict:
     return {"summary_json": str(json_path), "summary_md": str(md_path), "passed": criteria["passed"]}
 
 
+def _exported_sha(outputs_dir: Path) -> str:
+    """The SHA-256 of the publication that the exported files describe, from the metadata of the run table."""
+    metadata = pq.read_schema(Path(outputs_dir) / f"{RUN_TABLE}.parquet").metadata or {}
+    return metadata.get(b"oilgas.source_sha256", b"").decode()
+
+
 def _refresh_run_table(ctx: RunContext) -> None:
     """Rewrite the exported run table from SQLite, so Power BI sees the status SQLite has."""
+    # A run that never downloaded (an unchanged publication) keeps the SHA-256 of the files already exported.
+    sha = _task_result(ctx, "download").get("sha256") or _exported_sha(ctx.cfg.paths.outputs_dir)
     conn = connect(ctx.cfg.paths.warehouse)
     try:
-        export_run_table(conn, ctx.cfg.paths.outputs_dir, MODEL, ctx.run_key, _task_result(ctx, "download")["sha256"], ATTRIBUTION)
+        export_run_table(conn, ctx.cfg.paths.outputs_dir, MODEL, ctx.run_key, sha, ATTRIBUTION)
     finally:
         conn.close()
+
+
+def _refresh_exports(ctx: RunContext, *, html: bool) -> None:
+    """Bring the files that were exported before in line with SQLite: the run table, and with `html` the design too.
+
+    Nothing is created that was not there: a run that never exported has nothing to refresh.
+    """
+    cfg = ctx.cfg
+    if not (Path(cfg.paths.outputs_dir) / f"{RUN_TABLE}.parquet").exists():
+        return
+    _refresh_run_table(ctx)
+    if html and Path(cfg.paths.dashboard_html).exists():
+        render_design(MODEL, cfg.paths.outputs_dir, cfg.paths.dashboard_html, ATTRIBUTION)
 
 
 TASKS: tuple[TaskSpec, ...] = (
@@ -400,19 +429,19 @@ def _run_spec(spec: TaskSpec, ctx: RunContext) -> dict:
         raise
     except BaseException as error:
         message = f"{spec.task_id}: {type(error).__name__}: {error}"[:500]
+        full_traceback = "".join(traceback.format_exception(error))
         state = _read_state(ctx.state_path)
         state["status"] = "failed"
-        state.setdefault("tasks", {})[spec.task_id] = {"status": "failed", "error": message}
+        state.setdefault("tasks", {})[spec.task_id] = {"status": "failed", "error": message, "traceback": full_traceback}
         _write_state(ctx.state_path, state)
         if _has_record(ctx):
             _record(ctx, status="failed", finished_at=_now_text(), message=message)
-            if (Path(ctx.cfg.paths.outputs_dir) / f"{RUN_TABLE}.parquet").exists():
-                # The files already exported must not keep showing this run as in progress or done.
-                try:
-                    _refresh_run_table(ctx)
-                except Exception as refresh_error:  # the original failure is what the caller must see
-                    logger.warning("could not refresh the exported run table after %s: %s", spec.task_id, refresh_error)
-        logger.error("task %s failed after %.1f s: %s", spec.task_id, time.perf_counter() - started, message)
+            try:
+                # The files already exported (and the HTML that shows them) must not keep showing this run as in progress or done.
+                _refresh_exports(ctx, html=True)
+            except Exception as refresh_error:  # the original failure is what the caller must see
+                logger.warning("could not refresh the exported run table after %s: %s", spec.task_id, refresh_error)
+        logger.exception("task %s failed after %.1f s: %s", spec.task_id, time.perf_counter() - started, message, exc_info=error)
         raise
     # A task that reports its own stage times (the backtest and the forecast) keeps them as ``stage_seconds``;
     # ``seconds`` is always the wall time of the whole task.

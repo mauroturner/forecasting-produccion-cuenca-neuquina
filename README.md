@@ -151,6 +151,8 @@ flowchart LR
 
 La primera tarea corta el flujo si la publicación no cambió; la tercera lo corta, sin tocar nada, si el archivo no cumple el contrato.
 
+Sobre la integridad de la descarga, tal cual es: la fuente solo ofrece HTTP, sin TLS. El SHA-256 del archivo se **calcula y se guarda** en el manifiesto y en la corrida, pero **no se verifica** contra un valor de confianza (la fuente no publica ninguno); sirve para identificar el archivo y detectar que cambió entre corridas, no para probar que nadie lo alteró en el camino. Lo que sí se comprueba es que el tamaño recibido sea el anunciado por `HEAD`, y después las 23 reglas de validación.
+
 ## Los datos
 
 | | |
@@ -249,7 +251,7 @@ $env:PYTHONPATH = "src"
 .venv\Scripts\python -m oilgas docs-sync
 ```
 
-Con Airflow (Docker Compose): `cd airflow`, `copy .env.example .env`, `docker compose build`, `docker compose up airflow-init`, `docker compose up -d`, y la interfaz queda en `http://localhost:8080`. Detalles y qué hacer si algo falla, en [docs/runbook.md](docs/runbook.md).
+Con Airflow (Docker Compose): `cd airflow`, `copy .env.example .env` y completar en `.env` las tres claves (FERNET_KEY, el secreto JWT y la contraseña de la interfaz, que no tienen valor por defecto), `docker compose build`, `docker compose up airflow-init`, `docker compose up -d`, y la interfaz queda en `http://localhost:8080`, publicada solo en `127.0.0.1`. Esta parte no se corrió en Docker (Docker Desktop estaba apagado): el DAG está pensado para correr todos los días y se verificó de forma estática. Detalles y qué hacer si algo falla, en [docs/runbook.md](docs/runbook.md).
 
 Medido en una corrida real con la publicación ya descargada (AMD Ryzen 9 5950X de 16 núcleos, 64 GB, Windows 10, 4 procesos): el backtest completo tardó 23,9 minutos y el flujo completo 30,9 minutos, dentro de los topes de 45 y 90 minutos fijados (tabla por tarea en la [ficha del modelo](docs/model-card.md)).
 

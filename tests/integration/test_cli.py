@@ -81,6 +81,20 @@ def test_a_task_that_fails_exits_with_one_and_says_which_error(copy_of_run, monk
     assert "failed: RuntimeError: no space left" in capsys.readouterr().err
 
 
+def test_the_traceback_of_a_failed_task_is_printed_only_with_verbose(copy_of_run, monkeypatch, capsys) -> None:
+    _, config = copy_of_run
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("no space left")
+
+    monkeypatch.setattr(cli, "run_all", boom)
+    assert main(["run", "--config", str(config)]) == EXIT_FAILED
+    assert "Traceback" not in capsys.readouterr().err
+    assert main(["-v", "run", "--config", str(config)]) == EXIT_FAILED
+    err = capsys.readouterr().err
+    assert "failed: RuntimeError: no space left" in err and "Traceback (most recent call last)" in err and "in boom" in err
+
+
 def test_task_runs_one_task_of_a_run(tmp_path: Path, fixture_csv: Path, capsys) -> None:
     config = write_config(tmp_path, fixture_csv)
     assert main(["task", "check_publication", "--config", str(config), "--run-key", "k1"]) == EXIT_OK

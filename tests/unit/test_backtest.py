@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from oilgas import backtest as backtest_module
 from oilgas.backtest import (
     POINT_METHODS,
     BacktestPlan,
@@ -299,6 +300,34 @@ def test_the_frame_is_sorted_by_fluid_well_origin_method_horizon(point: pd.DataF
         }
     )
     assert key.equals(key.sort_values(list(key.columns), kind="stable").reset_index(drop=True))
+
+
+def test_an_interrupted_backtest_cancels_the_groups_still_queued(monkeypatch: pytest.MonkeyPatch, panel: SeriesPanel, plan: BacktestPlan) -> None:
+    """A5: Airflow's timeout raises inside ``pool.map``; the pool must not go on with every queued group."""
+    seen: dict[str, object] = {}
+
+    class FakePool:
+        def __init__(self, max_workers: int) -> None:
+            seen["workers"] = max_workers
+
+        def __enter__(self) -> FakePool:
+            return self
+
+        def __exit__(self, *exc) -> bool:
+            seen["exited"] = True
+            return False
+
+        def map(self, func, iterable):
+            raise RuntimeError("the task timed out")
+
+        def shutdown(self, wait: bool = True, *, cancel_futures: bool = False) -> None:
+            seen["shutdown"] = (wait, cancel_futures)
+
+    monkeypatch.setattr(backtest_module, "ProcessPoolExecutor", FakePool)
+    with pytest.raises(RuntimeError, match="timed out"):
+        run_point_methods(panel, plan, quick_cfg(n_workers=2))
+    assert seen["workers"] == 2 and seen["exited"] is True
+    assert seen["shutdown"][1] is True  # type: ignore[index]
 
 
 # --- the evaluation set and the metrics table --------------------------------------------------------------

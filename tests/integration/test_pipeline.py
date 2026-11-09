@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import shutil
 import sqlite3
 from datetime import UTC, datetime
@@ -134,7 +135,7 @@ def test_the_exported_run_table_says_ok_and_has_the_validation_rules(quick_run) 
 # --- an unchanged or late publication -------------------------------------------------------------------------------------
 
 
-def test_an_unchanged_publication_ends_the_run_after_the_check_and_touches_no_output(copy_of_run) -> None:
+def test_an_unchanged_publication_ends_the_run_after_the_check_and_rewrites_only_the_run_table(copy_of_run) -> None:
     root, config = copy_of_run
     before = snapshot(root)
     [only] = run_all(load_config(config), now=datetime(2025, 1, 25, 9, tzinfo=UTC))
@@ -144,7 +145,9 @@ def test_an_unchanged_publication_ends_the_run_after_the_check_and_touches_no_ou
     after = snapshot(root)
     after_warehouse = after.pop("data/warehouse/production.sqlite")
     before.pop("data/warehouse/production.sqlite")
-    assert after == before  # no Parquet and no HTML changed
+    run_table = "outputs/powerbi/dim_pipeline_run.parquet"
+    assert after.pop(run_table) != before.pop(run_table)  # only the run table is rewritten, to show this run (A6)
+    assert after == before  # no other Parquet and no HTML changed
     assert after_warehouse
     statuses = dict(sqlite_rows(root, "SELECT status, COUNT(*) FROM pipeline_runs GROUP BY status"))
     assert statuses == {"ok": 1, "unchanged": 1}
@@ -161,6 +164,24 @@ def test_an_unchanged_publication_whose_last_month_is_too_old_is_recorded_as_lat
     assert fifty_five[0]["result"]["status"] == "unchanged"
     sixty = run_all(load_config(config), now=datetime(2025, 2, 25, 9, tzinfo=UTC))  # 56 days
     assert sixty[0]["result"]["status"] == "late"
+
+
+def test_the_exported_run_table_shows_the_unchanged_and_the_late_runs(copy_of_run) -> None:
+    """A6 (RF20): Power BI reads the files, so a late publication must be visible there and not only in SQLite."""
+    root, config = copy_of_run
+    run_all(load_config(config), now=datetime(2025, 1, 25, 9, tzinfo=UTC))
+    run_all(load_config(config), now=datetime(2025, 6, 30, 9, tzinfo=UTC))
+    runs = pd.read_parquet(root / "outputs/powerbi/dim_pipeline_run.parquet")
+    assert sorted(runs["status"]) == ["late", "ok", "unchanged"]
+    assert verify_star_schema(root / "outputs/powerbi", MODEL) == []  # the file keeps its contract and its metadata
+
+
+def test_an_unchanged_publication_creates_no_exported_file_when_there_is_none(copy_of_run) -> None:
+    root, config = copy_of_run
+    table = root / "outputs/powerbi/dim_pipeline_run.parquet"
+    table.unlink()
+    run_all(load_config(config), now=datetime(2025, 1, 25, 9, tzinfo=UTC))
+    assert not table.exists()
 
 
 def test_a_changed_publication_runs_again(copy_of_run, tmp_path: Path) -> None:
@@ -289,6 +310,62 @@ def test_a_failing_task_marks_the_run_failed_and_keeps_the_error(copy_of_run, mo
     assert state["status"] == "failed" and "the model exploded" in state["tasks"]["forecast"]["error"]
     [(status, message)] = sqlite_rows(root, "SELECT status, message FROM pipeline_runs WHERE run_key = ?", run_key)
     assert status == "failed" and "forecast" in message and "exploded" in message
+
+
+def test_a_failed_task_keeps_its_traceback_in_the_log_and_in_the_state_file(copy_of_run, monkeypatch, caplog) -> None:
+    """A4: the one-line message is not enough to find where a task broke."""
+    root, config = copy_of_run
+    cfg = load_config(config)
+    [state_file] = list((root / "data/interim/runs").glob("*.json"))
+
+    def boom(ctx):
+        raise RuntimeError("the model exploded")
+
+    monkeypatch.setattr(pipeline, "run_production_forecast", boom)
+    with caplog.at_level(logging.ERROR, logger="oilgas.pipeline"), pytest.raises(RuntimeError):
+        run_task("forecast", state_file.stem, cfg)
+    failed = json.loads(state_file.read_text(encoding="utf-8"))["tasks"]["forecast"]
+    assert len(failed["error"]) <= 500 and "the model exploded" in failed["error"]
+    assert "Traceback (most recent call last)" in failed["traceback"] and "in boom" in failed["traceback"]
+    assert failed["traceback"].rstrip().endswith("RuntimeError: the model exploded")
+    [record] = [r for r in caplog.records if r.levelno == logging.ERROR and "forecast failed" in r.getMessage()]
+    assert record.exc_info is not None and record.exc_info[0] is RuntimeError
+
+
+def test_a_failure_in_the_last_task_after_the_html_was_rendered_renders_the_html_again(copy_of_run, monkeypatch) -> None:
+    """A7: the committed HTML must not keep showing "ok" for a run that failed in the manifest step."""
+    root, config = copy_of_run
+    cfg = load_config(config)
+    run_key = next((root / "data/interim/runs").glob("*.json")).stem
+    html = root / "dashboard/powerbi-design.html"
+    assert ">ok<" in html.read_text(encoding="utf-8")
+    _reopen(root, run_key)
+    run_task("export", run_key, cfg)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("the manifest is gone")
+
+    monkeypatch.setattr(pipeline, "mark_manifest", boom)
+    with pytest.raises(RuntimeError, match="manifest is gone"):
+        run_task("report", run_key, cfg)
+    shown = html.read_text(encoding="utf-8")
+    assert ">failed<" in shown and ">ok<" not in shown
+
+
+def test_a_failure_does_not_create_an_html_that_was_not_there(copy_of_run, monkeypatch) -> None:
+    root, config = copy_of_run
+    cfg = load_config(config)
+    run_key = next((root / "data/interim/runs").glob("*.json")).stem
+    html = root / "dashboard/powerbi-design.html"
+    html.unlink()
+
+    def boom(ctx):
+        raise RuntimeError("the model exploded")
+
+    monkeypatch.setattr(pipeline, "run_production_forecast", boom)
+    with pytest.raises(RuntimeError):
+        run_task("forecast", run_key, cfg)
+    assert not html.exists()
 
 
 def test_a_failure_before_the_load_leaves_no_record_in_the_warehouse(tmp_path: Path, fixture_csv: Path, monkeypatch) -> None:

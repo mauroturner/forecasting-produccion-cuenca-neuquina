@@ -51,7 +51,9 @@ def test_a_second_run_on_the_same_publication_does_nothing(cli_run) -> None:
     before = {p.name: p.read_bytes() for p in (root / "outputs/powerbi").glob("*.parquet")}
     again = python_m("run", "--config", str(config))
     assert again.returncode == 0 and "unchanged:" in again.stdout and again.stdout.count("\n") == 2
-    assert {p.name: p.read_bytes() for p in (root / "outputs/powerbi").glob("*.parquet")} == before
+    after = {p.name: p.read_bytes() for p in (root / "outputs/powerbi").glob("*.parquet")}
+    assert after.pop("dim_pipeline_run.parquet") != before.pop("dim_pipeline_run.parquet")  # the run table shows the unchanged run (A6)
+    assert after == before  # and nothing else is rewritten
 
 
 def test_two_runs_on_the_same_input_give_the_same_tables_apart_from_the_run_columns(cli_run, quick_run) -> None:

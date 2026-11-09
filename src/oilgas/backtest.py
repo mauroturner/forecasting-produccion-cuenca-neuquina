@@ -285,7 +285,13 @@ def run_point_methods(panel: SeriesPanel, plan: BacktestPlan, cfg: PipelineConfi
         groups = [_run_group(t) for t in tasks]
     else:
         with ProcessPoolExecutor(max_workers=bt.n_workers) as pool:
-            groups = list(pool.map(_run_group, tasks))
+            try:
+                groups = list(pool.map(_run_group, tasks))
+            except BaseException:
+                # A task timeout (Airflow) or a Ctrl+C lands here: without this the pool would still run every queued
+                # group before the exception got out. Only the groups already running are waited for.
+                pool.shutdown(wait=True, cancel_futures=True)
+                raise
     return _frame_from_groups(groups)
 
 

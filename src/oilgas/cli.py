@@ -12,6 +12,7 @@ import argparse
 import json
 import logging
 import sys
+import traceback
 from pathlib import Path
 
 import pandas as pd
@@ -176,6 +177,8 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_USAGE
     except Exception as error:  # a task failed: its record is in the run state
         _fail(f"failed: {type(error).__name__}: {error}")
+        if args.verbose:
+            _fail("".join(traceback.format_exception(error)).rstrip())
         return EXIT_FAILED
 
 

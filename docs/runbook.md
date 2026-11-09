@@ -54,7 +54,7 @@ Un principio vale para todo el documento: **un rechazo o una falla no dejan el a
 
 1. Reintentar: Airflow reintenta tres veces con 15 minutos de espera; en la CLI, `python -m oilgas run`.
 2. Si el servidor responde bien pero el tamaño anunciado y el recibido siempre difieren, la publicación se está regenerando: esperar unos minutos y reintentar.
-3. Si ya tenés el archivo completo, usarlo sin descargar: `python -m oilgas run --adopt data\raw\<archivo>.csv`. La integridad se comprueba con el tamaño y el SHA-256 que quedan en el manifiesto (la fuente solo ofrece HTTP, sin TLS; RNF11).
+3. Si ya tenés el archivo completo, usarlo sin descargar: `python -m oilgas run --adopt data\raw\<archivo>.csv`. Lo que se comprueba es el tamaño, que debe ser el anunciado por `HEAD`; el SHA-256 queda en el manifiesto pero no se verifica contra ningún valor de confianza, porque la fuente no publica uno y solo ofrece HTTP, sin TLS (RNF11): identifica el archivo, no prueba que no fue alterado en el camino.
 4. Un 404 es otro caso: ver R11.
 
 ## R5 Archivo truncado o último mes incompleto
@@ -92,16 +92,17 @@ Airflow corre solo dentro de Docker Compose (`airflow/`); en Windows no se insta
 ```powershell
 cd airflow
 copy .env.example .env
+# completar en .env las tres claves, que no tienen valor por defecto (el archivo trae el comando para generar cada una)
 docker compose build
 docker compose up airflow-init
 docker compose up -d
 ```
 
-La interfaz queda en `http://localhost:8080` (usuario y contraseña: `airflow`). Si no arranca:
+`.env` pide tres valores: `FERNET_KEY`, `AIRFLOW__API_AUTH__JWT_SECRET` y `_AIRFLOW_WWW_USER_PASSWORD`. Mientras uno esté vacío, `docker compose` se niega a arrancar y dice cuál falta; no hay claves de ejemplo que alguien pueda adivinar. La interfaz queda en `http://localhost:8080`, publicada solo en `127.0.0.1` (no se ve desde otras máquinas), con el usuario `airflow` y la contraseña que se puso en `.env`. Los contenedores montan `src/`, `sql/` y `config/` en solo lectura; solo `data/`, `outputs/`, `reports/` y `dashboard/` se pueden escribir. La imagen instala las mismas versiones exactas que `requirements.txt` (si alguna chocara con las restricciones de Airflow, la construcción falla en lugar de instalar otra versión). Si no arranca:
 
 - **Docker Desktop apagado.** `docker info` falla: encenderlo y esperar a que diga que está corriendo.
 - **Memoria.** Docker necesita 4 GB como mínimo (8 GB recomendado). En Docker Desktop: Settings, Resources. Síntoma típico: contenedores que se reinician o `airflow-init` que termina con código 137.
-- **Puerto 8080 ocupado.** Cambiar el mapeo `"8080:8080"` de `docker-compose.yaml` o cerrar el programa que lo usa (`netstat -ano | findstr :8080`).
+- **Puerto 8080 ocupado.** Cambiar el mapeo `"127.0.0.1:8080:8080"` de `docker-compose.yaml` o cerrar el programa que lo usa (`netstat -ano | findstr :8080`).
 - **Permisos de la carpeta de registros.** `.env` debe tener `AIRFLOW_UID=50000`; si `airflow-init` se queja de permisos sobre `logs/`, borrar `airflow/logs/` (no se versiona) y repetir `docker compose up airflow-init`.
 - **El DAG no aparece.** `docker compose logs airflow-dag-processor`: un error de importación aparece ahí. El DAG es solo el cableado de `oilgas.pipeline.TASKS`; para saber si el problema es del DAG o del proyecto, correr `python -m oilgas run` en Windows.
 
