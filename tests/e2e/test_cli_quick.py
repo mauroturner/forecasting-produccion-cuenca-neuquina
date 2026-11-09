@@ -94,6 +94,15 @@ def test_the_documented_quick_run_works_from_a_fresh_clone_and_writes_nothing_ve
         shutil.rmtree(sandbox, ignore_errors=True)
 
 
+def test_a_failed_task_shows_its_traceback_once_and_only_with_verbose(tmp_path: Path, fixture_csv: Path) -> None:
+    """A4 as the person at the terminal sees it: the logging line never carries the trace, ``-v`` prints it once."""
+    config = write_config(tmp_path, fixture_csv)
+    quiet = python_m("task", "validate", "--config", str(config), "--run-key", "quiet", timeout=120)  # the download is missing: KeyError
+    assert quiet.returncode == 1 and "failed: KeyError" in quiet.stderr and "Traceback" not in quiet.stderr
+    loud = python_m("-v", "task", "validate", "--config", str(config), "--run-key", "loud", timeout=120)
+    assert loud.returncode == 1 and loud.stderr.count("Traceback (most recent call last)") == 1
+
+
 def test_a_quick_configuration_without_its_file_says_so_instead_of_crashing(tmp_path: Path) -> None:
     config = tmp_path / "local.toml"
     config.write_text(f'extends = "{(PROJECT / "config" / "pipeline.toml").as_posix()}"\n[source]\nmode = "local"\n', encoding="utf-8")

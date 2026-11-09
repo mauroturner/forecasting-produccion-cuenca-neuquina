@@ -120,9 +120,18 @@ def draw_figures(cfg: PipelineConfig) -> list[Path]:
         conn.close()
 
 
+class _LineFormatter(logging.Formatter):
+    """One line per record: the traceback of a failed task is printed by ``main`` with ``-v``, not by the log (A4)."""
+
+    def formatException(self, ei) -> str:
+        return ""
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    handler = logging.StreamHandler()
+    handler.setFormatter(_LineFormatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING, handlers=[handler])
     if args.command == "make-fixture":
         sys.path.insert(0, str(PROJECT_ROOT))  # the generator lives with the tests, next to src/
         from tests.fixtures.make_fixture import make_fixture
