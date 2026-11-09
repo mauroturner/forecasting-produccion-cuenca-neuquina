@@ -79,12 +79,22 @@ def valid_frame(valid_outcome):
 
 
 @pytest.fixture(scope="session")
-def warehouse_conn(tmp_path_factory: pytest.TempPathFactory, valid_frame):
-    """A warehouse with the valid fixture loaded (read only by the tests that use it)."""
+def warehouse_path(tmp_path_factory: pytest.TempPathFactory, valid_frame) -> Path:
+    """A warehouse file with the valid fixture loaded as r1 (tests must not write to it)."""
     from oilgas.warehouse import connect, load_validated_subset
 
-    conn = connect(tmp_path_factory.mktemp("session_wh") / "production.sqlite")
+    path = tmp_path_factory.mktemp("session_wh") / "production.sqlite"
+    conn = connect(path)
     load_validated_subset(conn, valid_frame, "r1")
+    conn.close()
+    return path
+
+
+@pytest.fixture(scope="session")
+def warehouse_conn(warehouse_path: Path):
+    from oilgas.warehouse import connect
+
+    conn = connect(warehouse_path)
     yield conn
     conn.close()
 
