@@ -28,7 +28,6 @@ from oilgas.config import ArpsConfig, load_config
 METHODS = ("arps_exp", "arps_mh_b2", "arps_mh_b1")
 EXPONENTIAL = "arps_exp"
 FIRST_POINTS = 12  # points used for the slope that seeds the initial decline
-TOLERANCE = 1e-12  # optimizer tolerance: tight, so noiseless data is recovered exactly
 WARM_B_START = 1.0
 
 
@@ -156,8 +155,7 @@ def _solve(method: str, t: np.ndarray, log_rate: np.ndarray, cfg: ArpsConfig, d_
                 warnings.simplefilter("ignore", OptimizeWarning)
                 popt, _ = curve_fit(
                     model, t, log_rate, p0=p0, bounds=(lower, upper), method="trf", loss=cfg.loss,
-                    f_scale=cfg.f_scale, max_nfev=cfg.max_nfev, ftol=TOLERANCE, xtol=TOLERANCE, gtol=TOLERANCE,
-                    check_finite=False,
+                    f_scale=cfg.f_scale, max_nfev=cfg.max_nfev, check_finite=False,
                 )
         except (RuntimeError, ValueError, np.linalg.LinAlgError):
             continue
