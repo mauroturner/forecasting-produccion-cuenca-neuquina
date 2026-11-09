@@ -15,7 +15,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 from dataclasses import dataclass, field
 from datetime import date
 from enum import StrEnum
@@ -26,6 +25,7 @@ import numpy as np
 import pandas as pd
 
 from oilgas.config import PipelineConfig
+from oilgas.files import write_atomic
 from oilgas.schema import SOURCE_COLUMNS, USED_COLUMNS, period_index_of, period_index_of_key, read_source_csv
 
 logger = logging.getLogger(__name__)
@@ -461,10 +461,7 @@ def _typed_subset(w: pd.DataFrame, year: pd.Series, month: pd.Series, well: pd.S
 
 
 def _atomic_write(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(text, encoding="utf-8", newline="\n")
-    os.replace(temporary, path)
+    write_atomic(path, text)
 
 
 def _report_json(report: ValidationReport) -> str:

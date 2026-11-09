@@ -15,7 +15,6 @@ processed whole and in origin order (so the Arps warm start is the same), and th
 
 from __future__ import annotations
 
-import os
 import time
 from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor
@@ -31,8 +30,10 @@ from oilgas.baselines import naive_last, naive_mean3
 from oilgas.calibration import ANY_BUCKET, CELL, apply_bands, band_quantiles, log_error
 from oilgas.config import ArpsConfig, BacktestConfig, PipelineConfig
 from oilgas.features import base_rate, features_at, training_examples
+from oilgas.files import atomic_path
 from oilgas.metrics import additive_components
 from oilgas.ml import fit_quantile_models, predict_volumes
+from oilgas.reporting import select_methods, store_summary, summarize
 from oilgas.series import (
     AGE_BUCKETS,
     FLUIDS,
@@ -375,6 +376,35 @@ def error_frame(point: pd.DataFrame, eps: float) -> pd.DataFrame:
     return errors
 
 
+def bands_at_origin(rows: pd.DataFrame, errors: pd.DataFrame, origin: int, cfg: BacktestConfig) -> tuple[np.ndarray, np.ndarray]:
+    """P10 and P90 volumes of the point forecasts `rows` made at `origin`, from the errors realized by then.
+
+    `rows` has ``method, fluid, horizon, age_bucket, target_days, p50``; `errors` is ``error_frame``. A row
+    whose (method, fluid, horizon) has no realized error gets NaN.
+    """
+    n = len(rows)
+    quantiles = band_quantiles(errors, origin, cfg)
+    if quantiles.empty or n == 0:
+        return np.full(n, np.nan), np.full(n, np.nan)
+    keys = pd.DataFrame(
+        {
+            "method": rows["method"].astype(str).to_numpy(),
+            "fluid": rows["fluid"].astype(str).to_numpy(),
+            "horizon": rows["horizon"].to_numpy().astype(np.int64),
+            "age_bucket": rows["age_bucket"].astype(str).to_numpy(),
+        }
+    )
+    quantiles = quantiles.astype({"horizon": np.int64})
+    cell = quantiles[quantiles["age_bucket"] != ANY_BUCKET][[*CELL, "age_bucket", "q10", "q90"]]
+    broad = quantiles[quantiles["age_bucket"] == ANY_BUCKET][[*CELL, "q10", "q90"]].rename(columns={"q10": "b10", "q90": "b90"})
+    merged = keys.merge(cell, on=[*CELL, "age_bucket"], how="left").merge(broad, on=CELL, how="left")
+    q10 = merged["q10"].fillna(merged["b10"]).to_numpy()
+    q90 = merged["q90"].fillna(merged["b90"]).to_numpy()
+    days = rows["target_days"].to_numpy(dtype=np.float64)
+    low, high = apply_bands(rows["p50"].to_numpy(dtype=np.float64) / days, q10, q90, cfg.epsilon_rate)
+    return low * days, high * days
+
+
 def add_empirical_bands(point: pd.DataFrame, plan: BacktestPlan, cfg: BacktestConfig) -> pd.DataFrame:
     """Fill `p10` and `p90` of the point forecasts from the errors realized before each origin.
 
@@ -382,8 +412,7 @@ def add_empirical_bands(point: pd.DataFrame, plan: BacktestPlan, cfg: BacktestCo
     first evaluation origin already has errors at every horizon.
     """
     out = point.copy()
-    eps = cfg.epsilon_rate
-    errors = error_frame(point, eps)
+    errors = error_frame(point, cfg.epsilon_rate)
     p10 = np.full(len(point), np.nan)
     p90 = np.full(len(point), np.nan)
     by_origin = point.groupby("origin", sort=True).indices
@@ -391,26 +420,7 @@ def add_empirical_bands(point: pd.DataFrame, plan: BacktestPlan, cfg: BacktestCo
         rows = by_origin.get(origin)
         if rows is None:
             continue
-        quantiles = band_quantiles(errors, origin, cfg)
-        if quantiles.empty:
-            continue
-        keys = pd.DataFrame(
-            {
-                "method": point["method"].iloc[rows].astype(str).to_numpy(),
-                "fluid": point["fluid"].iloc[rows].astype(str).to_numpy(),
-                "horizon": point["horizon"].iloc[rows].to_numpy().astype(np.int64),
-                "age_bucket": point["age_bucket"].iloc[rows].astype(str).to_numpy(),
-            }
-        )
-        quantiles = quantiles.astype({"horizon": np.int64})
-        cell = quantiles[quantiles["age_bucket"] != ANY_BUCKET][[*CELL, "age_bucket", "q10", "q90"]]
-        broad = quantiles[quantiles["age_bucket"] == ANY_BUCKET][[*CELL, "q10", "q90"]].rename(columns={"q10": "b10", "q90": "b90"})
-        merged = keys.merge(cell, on=[*CELL, "age_bucket"], how="left").merge(broad, on=CELL, how="left")
-        q10 = merged["q10"].fillna(merged["b10"]).to_numpy()
-        q90 = merged["q90"].fillna(merged["b90"]).to_numpy()
-        days = point["target_days"].iloc[rows].to_numpy(dtype=np.float64)
-        low, high = apply_bands(point["p50"].iloc[rows].to_numpy() / days, q10, q90, eps)
-        p10[rows], p90[rows] = low * days, high * days
+        p10[rows], p90[rows] = bands_at_origin(point.iloc[rows], errors, origin, cfg)
     out["p10"], out["p90"] = p10, p90
     return out
 
@@ -458,10 +468,8 @@ def backtest_metrics(evaluation: pd.DataFrame, attrs: pd.DataFrame) -> pd.DataFr
 
 def _write_parquet(frame: pd.DataFrame, path: Path) -> None:
     """Write to a temporary file and rename (RNF05): a failure never leaves a half-written file."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    frame.to_parquet(temporary, index=False)
-    os.replace(temporary, path)
+    with atomic_path(path) as temporary:
+        frame.to_parquet(temporary, index=False)
 
 
 def write_metrics(conn, metrics: pd.DataFrame, run_key: str) -> None:
@@ -485,7 +493,8 @@ def write_metrics(conn, metrics: pd.DataFrame, run_key: str) -> None:
 
 
 def run_backtest(ctx: RunContext) -> dict:
-    """The ``backtest`` task: panel from the warehouse, point methods and their bands, the ML model, metrics to SQLite, forecasts to Parquet."""
+    """The ``backtest`` task: panel from the warehouse, point methods and their bands, the ML model, metrics, summary and method
+    selection to SQLite, forecasts to Parquet."""
     cfg = ctx.cfg
     started = time.perf_counter()
     conn = connect(cfg.paths.warehouse)
@@ -507,6 +516,9 @@ def run_backtest(ctx: RunContext) -> dict:
         _write_parquet(ml, out_dir / "ml_forecasts.parquet")
         _write_parquet(error_frame(point, cfg.backtest.epsilon_rate), out_dir / "errors.parquet")
         write_metrics(conn, metrics, ctx.run_key)
+        summary = summarize(evaluation, cfg)
+        selection = select_methods(summary)
+        store_summary(conn, summary, selection, ctx.run_key)
     finally:
         conn.close()
     done = time.perf_counter()
@@ -517,6 +529,8 @@ def run_backtest(ctx: RunContext) -> dict:
         "ml_rows": int(len(ml)),
         "pairs_evaluated": int(len(evaluation)),
         "metric_rows": int(len(metrics)),
+        "summary_rows": int(len(summary)),
+        "selected": int(len(selection)),
         "seconds": {"panel": t_panel - started, "point_methods": t_point - t_panel, "bands": t_bands - t_point, "ml": t_ml - t_bands, "total": done - started},
         "files": [str(out_dir / name) for name in ("point_forecasts.parquet", "ml_forecasts.parquet", "errors.parquet")],
     }

@@ -130,3 +130,86 @@ def test_the_task_does_not_touch_the_production_tables(run, warehouse_path) -> N
     with sqlite3.connect(warehouse_path) as original, sqlite3.connect(ctx.cfg.paths.warehouse) as used:
         for name in tables:
             assert original.execute(f"SELECT COUNT(*) FROM {name}").fetchone() == used.execute(f"SELECT COUNT(*) FROM {name}").fetchone()
+
+
+# --- the summary and the selection (U09) --------------------------------------------------------------------
+
+
+def test_the_task_stores_the_summary_of_the_evaluation_pairs(run) -> None:
+    from oilgas.reporting import SUMMARY_COLUMNS, read_summary
+
+    ctx, result = run
+    conn = connect(ctx.cfg.paths.warehouse)
+    try:
+        summary = read_summary(conn)
+        run_keys = set(pd.read_sql_query("SELECT run_key FROM model_summary", conn)["run_key"])
+    finally:
+        conn.close()
+    assert list(summary.columns) == SUMMARY_COLUMNS and len(run_keys) == 1  # the run that wrote it, whichever ran last
+    assert result["summary_rows"] == len(summary) > 0
+    assert summary["n_points"].sum() == result["pairs_evaluated"]
+    metrics = metrics_table(ctx)
+    by_cell = metrics.groupby(["method", "fluid", "horizon"])["n"].sum()
+    from_summary = summary.groupby(["method", "fluid", "horizon"])["n_points"].sum()
+    pd.testing.assert_series_equal(from_summary, by_cell, check_names=False, check_dtype=False)
+    assert set(summary["segment"]) == {"eligible", "young"} and set(summary["method"]) == set(METHOD_CATEGORIES)
+    young = summary[summary["segment"] == "young"]
+    assert set(young["method"]) <= {"naive_last", "naive_mean3", "ml_hgb"}
+    assert summary["coverage_verdict"].isin(["calibrado", "aceptable", "descalibrado"]).all()
+
+
+def test_the_task_stores_one_selected_method_per_fluid_and_segment(run) -> None:
+    from oilgas.reporting import CANDIDATES, read_selection
+
+    ctx, result = run
+    conn = connect(ctx.cfg.paths.warehouse)
+    try:
+        selection = read_selection(conn)
+    finally:
+        conn.close()
+    assert result["selected"] == len(selection) > 0
+    assert not selection.duplicated(["fluid", "segment"]).any()
+    for row in selection.itertuples():
+        assert row.method in CANDIDATES[row.segment]
+
+
+def test_running_the_task_again_replaces_the_summary(run) -> None:
+    from oilgas.reporting import read_summary
+
+    ctx, _ = run
+    first = None
+    conn = connect(ctx.cfg.paths.warehouse)
+    try:
+        first = read_summary(conn)
+    finally:
+        conn.close()
+    run_backtest(Ctx(ctx.cfg, "r-third"))
+    conn = connect(ctx.cfg.paths.warehouse)
+    try:
+        again = read_summary(conn)
+        keys = set(pd.read_sql_query("SELECT run_key FROM model_summary", conn)["run_key"]) | set(
+            pd.read_sql_query("SELECT run_key FROM model_selection", conn)["run_key"]
+        )
+    finally:
+        conn.close()
+    assert keys == {"r-third"}
+    pd.testing.assert_frame_equal(again, first)
+
+
+def test_the_bands_of_one_origin_can_be_rebuilt_from_the_errors_file(run) -> None:
+    import numpy as np
+
+    from oilgas.backtest import bands_at_origin
+
+    ctx, result = run
+    folder = Path(ctx.cfg.paths.interim_dir) / "backtest"
+    point = pd.read_parquet(folder / "point_forecasts.parquet")
+    errors = pd.read_parquet(folder / "errors.parquet")
+    origin = result["origins"]["eval"][-1]
+    rows = point[point["origin"] == origin]
+    low, high = bands_at_origin(rows, errors, origin, ctx.cfg.backtest)
+    assert len(rows) > 0 and np.isfinite(low).all()
+    np.testing.assert_allclose(low, rows["p10"].to_numpy())
+    np.testing.assert_allclose(high, rows["p90"].to_numpy())
+    first = bands_at_origin(point[point["origin"] == result["origins"]["warmup"][0]], errors, result["origins"]["warmup"][0], ctx.cfg.backtest)
+    assert np.isnan(first[0]).all()  # no error has been realized before the first origin

@@ -15,7 +15,6 @@ import logging
 import os
 import re
 import shutil
-import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -24,6 +23,8 @@ from datetime import UTC, datetime
 from email.utils import formatdate
 from pathlib import Path
 from typing import Literal
+
+from oilgas.files import write_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -140,23 +141,9 @@ def read_manifest(path: Path) -> list[ManifestEntry]:
 
 
 def _write_manifest(path: Path, entries: list[ManifestEntry]) -> None:
-    """Write to a temporary file of its own in the manifest's folder, then rename (atomic, RNF05).
-
-    The temporary name is unique, so two overlapping writers never share it.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
+    """Write the manifest through a unique temporary file in its folder and rename it (RNF05)."""
     document = {"version": MANIFEST_VERSION, "entries": [asdict(e) for e in entries]}
-    handle = tempfile.NamedTemporaryFile(
-        "w", encoding="utf-8", dir=path.parent, prefix=path.name + ".", suffix=".tmp", delete=False
-    )
-    temporary = Path(handle.name)
-    try:
-        with handle:
-            handle.write(json.dumps(document, indent=2, ensure_ascii=False) + "\n")
-        os.replace(temporary, path)
-    except BaseException:
-        temporary.unlink(missing_ok=True)
-        raise
+    write_atomic(path, json.dumps(document, indent=2, ensure_ascii=False) + "\n")
 
 
 def _check_status(status: str) -> None:
