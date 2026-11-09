@@ -142,3 +142,19 @@ def modeled_copy(tmp_path: Path, modeled_warehouse: Path) -> Path:
     path = tmp_path / "production.sqlite"
     shutil.copy(modeled_warehouse, path)
     return path
+
+
+@pytest.fixture(scope="session")
+def star_outputs(tmp_path_factory: pytest.TempPathFactory, modeled_warehouse: Path) -> Path:
+    """The Parquet star schema exported once from the modeled warehouse (read-only for the tests)."""
+    from oilgas.dashboard.semantic_model import MODEL
+    from oilgas.export import export_star_schema
+    from oilgas.warehouse import connect
+
+    root = tmp_path_factory.mktemp("star_outputs")
+    copy = root / "production.sqlite"
+    shutil.copy(modeled_warehouse, copy)
+    conn = connect(copy)
+    export_star_schema(conn, root / "powerbi", MODEL, "r1", "ab" * 32, "Fuente: Secretaría de Energía (CC BY 4.0).")
+    conn.close()
+    return root / "powerbi"
