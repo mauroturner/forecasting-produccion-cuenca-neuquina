@@ -313,17 +313,23 @@ def export(ctx: RunContext) -> dict:
     """Rebuild the model marts and write the star schema; the files are read back and checked (RF17, AC17)."""
     cfg = ctx.cfg
     sha = _task_result(ctx, "download")["sha256"]
+    # The exported run table shows this run as done, but SQLite says so only once the files are written and
+    # checked: a kill in between (Airflow's timeout, an OOM) runs no handler and must leave the run "running",
+    # so the next run exports again. If the HTML or the report fails later, the task wrapper marks it failed.
+    finished = {"run_key": ctx.run_key, "status": "ok", "finished_at": _now_text(), "message": "ok"}
     conn = connect(cfg.paths.warehouse)
     try:
-        # The exported run table must show this run as done, and only the HTML and the report are left; if one of
-        # them fails the task wrapper marks the run failed in SQLite and the next run exports again.
-        record_run(conn, {"run_key": ctx.run_key, "status": "ok", "finished_at": _now_text(), "message": "ok"})
-        paths = export_star_schema(conn, cfg.paths.outputs_dir, MODEL, ctx.run_key, sha, ATTRIBUTION)
+        paths = export_star_schema(conn, cfg.paths.outputs_dir, MODEL, ctx.run_key, sha, ATTRIBUTION, closing_run=finished)
     finally:
         conn.close()
     problems = verify_star_schema(cfg.paths.outputs_dir, MODEL)
     if problems:
         raise ExportError(f"the exported star schema breaks its contract: {problems[0]} ({len(problems)} problems)")
+    conn = connect(cfg.paths.warehouse)
+    try:
+        record_run(conn, finished)
+    finally:
+        conn.close()
     big = oversized_files(paths)
     if big:
         logger.warning("exported files over the size limit: %s", ", ".join(p.name for p in big))

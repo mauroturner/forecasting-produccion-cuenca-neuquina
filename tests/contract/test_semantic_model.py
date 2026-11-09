@@ -198,3 +198,9 @@ def test_a_visual_outside_the_grid_overlapping_or_with_an_unknown_field_is_repor
     assert any("Fuera" in p and "grid" in p for p in problems)
     assert any("Encima" in p and "overlaps" in p for p in problems)
     assert any("dim_well[nope]" in p for p in problems) and any("[No existe]" in p for p in problems)
+
+
+def test_the_last_published_month_counts_only_runs_that_finished_ok() -> None:
+    """A run that loaded a month and then failed must not make the dashboard look fresh (RF20)."""
+    [measure] = [m for m in MODEL.measures if m.name_es == "Último mes publicado"]
+    assert 'dim_pipeline_run[status] = "ok"' in measure.dax

@@ -211,6 +211,29 @@ def test_a_rejected_file_inside_the_raw_folder_is_moved_to_quarantine(copy_of_ru
 # --- failures -------------------------------------------------------------------------------------------------------------
 
 
+def test_a_run_killed_during_the_export_is_never_recorded_as_ok(copy_of_run, monkeypatch) -> None:
+    """A hard kill (Airflow's timeout, an OOM) runs no handler, so the export must not say "ok" before its files are checked."""
+    root, config = copy_of_run
+    cfg = load_config(config)
+    [state_file] = list((root / "data/interim/runs").glob("*.json"))
+    run_key = state_file.stem
+    with sqlite3.connect(root / "data/warehouse/production.sqlite") as conn:
+        conn.execute("UPDATE pipeline_runs SET status = 'running', finished_at = NULL WHERE run_key = ?", (run_key,))
+
+    class Killed(BaseException):
+        """Stands for the process being killed in the middle of the export."""
+
+    def killed(*args, **kwargs):
+        raise Killed
+
+    monkeypatch.setattr(pipeline, "export_star_schema", killed)
+    ctx = pipeline._context(cfg, run_key, NOW)
+    with pytest.raises(Killed):
+        pipeline.export(ctx)  # the task itself, without the wrapper that would catch the exception
+    [(status, finished_at)] = sqlite_rows(root, "SELECT status, finished_at FROM pipeline_runs WHERE run_key = ?", run_key)
+    assert status == "running" and finished_at is None
+
+
 def test_a_failing_task_marks_the_run_failed_and_keeps_the_error(copy_of_run, monkeypatch) -> None:
     root, config = copy_of_run
     cfg = load_config(config)

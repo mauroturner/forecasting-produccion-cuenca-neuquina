@@ -97,18 +97,35 @@ def _arrow_table(frame: pd.DataFrame, table: Table) -> pa.Table:
     return pa.Table.from_arrays(arrays, schema=arrow_schema(table))
 
 
-def _serialize(conn: sqlite3.Connection, table: Table, metadata: dict[str, str]) -> bytes:
+def _close_run(frame: pd.DataFrame, closing_run: dict) -> pd.DataFrame:
+    """The run table with the run being exported shown as finished, as SQLite will say once the files are checked."""
+    frame = frame.copy()
+    mine = frame["run_key"] == closing_run["run_key"]
+    for column, value in closing_run.items():
+        if column != "run_key":
+            frame.loc[mine, column] = value
+    return frame
+
+
+def _serialize(conn: sqlite3.Connection, table: Table, metadata: dict[str, str], closing_run: dict | None = None) -> bytes:
     """The Parquet file of a table as bytes (so its size is known before anything is written)."""
-    arrow = _arrow_table(_read_table(conn, table), table).replace_schema_metadata(metadata)
+    frame = _read_table(conn, table)
+    if closing_run is not None and table.name == "dim_pipeline_run":
+        frame = _close_run(frame, closing_run)
+    arrow = _arrow_table(frame, table).replace_schema_metadata(metadata)
     sink = pa.BufferOutputStream()
     pq.write_table(arrow, sink, compression="snappy")
     return sink.getvalue().to_pybytes()
 
 
 def export_star_schema(
-    conn: sqlite3.Connection, out_dir: Path, model: SemanticModel, run_key: str, source_sha256: str, attribution: str
+    conn: sqlite3.Connection, out_dir: Path, model: SemanticModel, run_key: str, source_sha256: str, attribution: str,
+    closing_run: dict | None = None,
 ) -> list[Path]:
     """Rebuild the marts and write one Parquet file per table of `model`; returns the paths in the model's order.
+
+    ``closing_run`` (its ``run_key`` and the columns to set) is applied to the exported run table only, so the
+    files show the run as finished while SQLite keeps it "running" until the caller has checked them.
 
     The controls run before any file is written, and so does the size check: if a table that grows with
     each origin would pass ``MAX_PARQUET_BYTES``, fewer origins are kept (down to the latest one) and the
@@ -121,7 +138,7 @@ def export_star_schema(
     max_origins = MAX_ORIGINS
     while True:
         build_model_marts(conn, max_origins)
-        blobs = {table.name: _serialize(conn, table, metadata) for table in model.tables}
+        blobs = {table.name: _serialize(conn, table, metadata, closing_run) for table in model.tables}
         heavy = [name for name in ORIGIN_SCOPED if name in blobs and len(blobs[name]) > MAX_PARQUET_BYTES]
         if not heavy or max_origins == 1:
             break
