@@ -11,7 +11,7 @@ El dueño del portafolio pidió, con sus palabras, desarrollar «de a un proyect
 | Investigación | Agente de Claude Code con Haiku | `docs/research.md` |
 | Requerimientos, arquitectura y plan | Agente con Opus | `docs/requirements.md`, `docs/plan.md`, `docs/decisions.md` (D01-D20) |
 | Programación | Agente con Sonnet, en lotes de unidades, pruebas primero | Las unidades U01-U15 y el endurecimiento H1 |
-| Revisión por unidad | Revisión nativa de Gentle AI | Un bloqueante en U04 y advertencias en U02, U03 y U04 |
+| Revisión por unidad | Revisión nativa de Gentle AI | Un bloqueante en U04, cuatro en U12 (en dos rondas) y advertencias en U02, U03, U04 y U12 |
 | Orquestación | La sesión principal de Claude Code | El documento de seguimiento, los lotes y los controles de cada commit |
 | Evaluación final independiente | Agente con Opus | **Pendiente**: todavía no se hizo |
 
@@ -90,7 +90,10 @@ Cada unidad de código es un commit y Gentle AI puede revisar un commit aparte. 
 - **U02** y **U03** salieron aprobadas con 7 y 8 advertencias.
 - **U04** tuvo un **bloqueante real**: si el subconjunto validado llegaba vacío, la carga confirmaba la transacción que vaciaba la tabla y recién después fallaba con un `TypeError` (`int(None)`), contra el propio contrato del módulo: «todo o nada». Se corrigió con la prueba primero (la carga vacía no abortaba: rojo; después, verde), el validador de la revisión aprobó la corrección y llegó a la rama como `5181abb` (`EmptySubsetError`).
 - **U05 a U08** (3.389 líneas en conjunto): la evaluación de riesgo dio «medio» y por debajo del presupuesto de revisión; no se abrió una revisión.
-- Para U09 a U12 el registro de seguimiento que usa este documento no consigna un resultado de revisión nativa; no se afirma uno.
+- **H1 y U09 a U11** (junto con U05 a U08, 7.389 líneas): la evaluación de riesgo siguió en «medio» y por debajo del presupuesto; no se abrió una revisión.
+- **U12** se revisó sola, porque cambia el entorno (la imagen de Docker y el compose de Airflow), con las lentes de riesgo y resiliencia. Tuvo **dos rondas de bloqueantes**:
+  - Primera ronda: la exportación marcaba la corrida `ok` en SQLite antes de terminar de escribir y verificar los archivos, así que un proceso muerto por el límite de tiempo de Airflow la dejaba `ok` con archivos a medias; y la medida «Último mes publicado» había perdido el filtro de corridas `ok`, así que una corrida que cargó un mes y falló después hacía ver el tablero al día. Se corrigió con la prueba primero (`13c1c13`).
+  - La corrección cambió el alcance y la revisión siguió sobre una línea sucesora, que encontró dos bloqueantes más en esa misma corrección: el `ok` quedaba escrito en el Parquet de corridas antes de verificar, y el HTML y D35 seguían mostrando la medida vieja. La solución final (`bfa4156`): la corrida queda `running` en SQLite y en los archivos hasta la última tarea, que la cierra en orden (SQLite, la tabla de corridas, el HTML y recién entonces el manifiesto); si algo falla después de exportar, la tabla exportada también dice `failed`; una prueba exige que el HTML versionado muestre cada medida del modelo. El validador de la revisión aprobó y quedaron cinco advertencias no bloqueantes para la evaluación final.
 
 Las advertencias de U02 a U04 están en su texto original en `docs/review-advisories.md`, y H1 (sección 3) les dio una resolución a cada una.
 
