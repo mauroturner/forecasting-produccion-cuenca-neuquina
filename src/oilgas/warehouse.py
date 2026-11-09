@@ -58,6 +58,13 @@ class LoadResult:
     checks: list[CheckResult]
 
 
+class EmptySubsetError(RuntimeError):
+    """The validated subset has no rows: the load was rolled back and the warehouse kept what it had."""
+
+    def __init__(self, run_key: str) -> None:
+        super().__init__(f"The load of {run_key} was rolled back: the validated subset has no rows")
+
+
 class CheckFailedError(RuntimeError):
     """A control returned rows: the load was rolled back."""
 
@@ -216,6 +223,9 @@ def load_validated_subset(
         rows, wells, last = conn.execute(
             "SELECT COUNT(*), COUNT(DISTINCT well_id), MAX(period_key) FROM raw_monthly_production"
         ).fetchone()
+        # An empty subset would wipe the warehouse; refuse it before the commit, not after.
+        if not rows:
+            raise EmptySubsetError(run_key)
         conn.execute("COMMIT")
     except BaseException:
         if conn.in_transaction:

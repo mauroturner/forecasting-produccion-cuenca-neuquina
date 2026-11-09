@@ -326,6 +326,17 @@ def test_a_failing_control_aborts_the_whole_load(tmp_path: Path, valid_frame, mo
     conn.close()
 
 
+def test_an_empty_subset_aborts_the_load_and_keeps_the_previous_one(tmp_path: Path, valid_frame) -> None:
+    conn = connect(tmp_path / "w.sqlite")
+    load_validated_subset(conn, valid_frame, "r1")
+    before = snapshot(conn)
+    with pytest.raises(warehouse.EmptySubsetError, match="r2"):
+        load_validated_subset(conn, valid_frame.iloc[0:0].copy(), "r2")
+    assert not conn.in_transaction
+    assert snapshot(conn) == before  # nothing was wiped: the empty load never committed
+    conn.close()
+
+
 def test_a_failing_first_load_leaves_an_empty_warehouse(tmp_path: Path, valid_frame, monkeypatch) -> None:
     conn = connect(tmp_path / "w.sqlite")
     sql_copy = tmp_path / "sql"
