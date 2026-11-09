@@ -27,7 +27,7 @@ from oilgas.backtest import run_backtest
 from oilgas.config import PipelineConfig, load_config
 from oilgas.dashboard.render import render_design
 from oilgas.dashboard.semantic_model import MODEL
-from oilgas.export import export_star_schema, oversized_files, verify_star_schema
+from oilgas.export import RUN_TABLE, export_run_table, export_star_schema, oversized_files, verify_star_schema
 from oilgas.files import atomic_path, write_atomic
 from oilgas.forecast import run_production_forecast
 from oilgas.ingest import (
@@ -313,23 +313,16 @@ def export(ctx: RunContext) -> dict:
     """Rebuild the model marts and write the star schema; the files are read back and checked (RF17, AC17)."""
     cfg = ctx.cfg
     sha = _task_result(ctx, "download")["sha256"]
-    # The exported run table shows this run as done, but SQLite says so only once the files are written and
-    # checked: a kill in between (Airflow's timeout, an OOM) runs no handler and must leave the run "running",
-    # so the next run exports again. If the HTML or the report fails later, the task wrapper marks it failed.
-    finished = {"run_key": ctx.run_key, "status": "ok", "finished_at": _now_text(), "message": "ok"}
+    # The run stays "running" in SQLite and in the exported run table; only the last task closes it (``report``).
+    # A kill here (Airflow's timeout, an OOM) runs no handler, and leaves nothing that says the run finished.
     conn = connect(cfg.paths.warehouse)
     try:
-        paths = export_star_schema(conn, cfg.paths.outputs_dir, MODEL, ctx.run_key, sha, ATTRIBUTION, closing_run=finished)
+        paths = export_star_schema(conn, cfg.paths.outputs_dir, MODEL, ctx.run_key, sha, ATTRIBUTION)
     finally:
         conn.close()
     problems = verify_star_schema(cfg.paths.outputs_dir, MODEL)
     if problems:
         raise ExportError(f"the exported star schema breaks its contract: {problems[0]} ({len(problems)} problems)")
-    conn = connect(cfg.paths.warehouse)
-    try:
-        record_run(conn, finished)
-    finally:
-        conn.close()
     big = oversized_files(paths)
     if big:
         logger.warning("exported files over the size limit: %s", ", ".join(p.name for p in big))
@@ -352,8 +345,22 @@ def report(ctx: RunContext) -> dict:
         conn.close()
     criteria = evaluate_criteria(summary, cfg.criteria)
     json_path, md_path = write_summary(criteria, summary, cfg.paths.reports_dir)
+    # Close the run, in this order: SQLite, then the exported run table, then the HTML that shows it, and only
+    # then the manifest, so a failure before the end leaves the publication to be processed again.
+    _record(ctx, status="ok", finished_at=_now_text(), message="ok")
+    _refresh_run_table(ctx)
+    render_design(MODEL, cfg.paths.outputs_dir, cfg.paths.dashboard_html, ATTRIBUTION)
     mark_manifest(_manifest_path(cfg), ctx.run_key, "loaded")
     return {"summary_json": str(json_path), "summary_md": str(md_path), "passed": criteria["passed"]}
+
+
+def _refresh_run_table(ctx: RunContext) -> None:
+    """Rewrite the exported run table from SQLite, so Power BI sees the status SQLite has."""
+    conn = connect(ctx.cfg.paths.warehouse)
+    try:
+        export_run_table(conn, ctx.cfg.paths.outputs_dir, MODEL, ctx.run_key, _task_result(ctx, "download")["sha256"], ATTRIBUTION)
+    finally:
+        conn.close()
 
 
 TASKS: tuple[TaskSpec, ...] = (
@@ -395,6 +402,12 @@ def _run_spec(spec: TaskSpec, ctx: RunContext) -> dict:
         _write_state(ctx.state_path, state)
         if _has_record(ctx):
             _record(ctx, status="failed", finished_at=_now_text(), message=message)
+            if (Path(ctx.cfg.paths.outputs_dir) / f"{RUN_TABLE}.parquet").exists():
+                # The files already exported must not keep showing this run as in progress or done.
+                try:
+                    _refresh_run_table(ctx)
+                except Exception as refresh_error:  # the original failure is what the caller must see
+                    logger.warning("could not refresh the exported run table after %s: %s", spec.task_id, refresh_error)
         logger.error("task %s failed after %.1f s: %s", spec.task_id, time.perf_counter() - started, message)
         raise
     # A task that reports its own stage times (the backtest and the forecast) keeps them as ``stage_seconds``;

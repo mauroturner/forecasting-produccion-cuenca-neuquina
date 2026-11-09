@@ -234,6 +234,45 @@ def test_a_run_killed_during_the_export_is_never_recorded_as_ok(copy_of_run, mon
     assert status == "running" and finished_at is None
 
 
+def _reopen(root: Path, run_key: str) -> None:
+    """Put the finished run of the copy back in its state before the export, as a run in progress."""
+    with sqlite3.connect(root / "data/warehouse/production.sqlite") as conn:
+        conn.execute("UPDATE pipeline_runs SET status = 'running', finished_at = NULL, message = NULL WHERE run_key = ?", (run_key,))
+
+
+def _exported_status(root: Path, run_key: str) -> str:
+    runs = pd.read_parquet(root / "outputs/powerbi/dim_pipeline_run.parquet")
+    return runs.loc[runs["run_key"] == run_key, "status"].item()
+
+
+def test_after_the_export_the_run_is_still_running_in_sqlite_and_in_the_exported_table(copy_of_run) -> None:
+    root, config = copy_of_run
+    cfg = load_config(config)
+    run_key = next((root / "data/interim/runs").glob("*.json")).stem
+    _reopen(root, run_key)
+    run_task("export", run_key, cfg)
+    [(status,)] = sqlite_rows(root, "SELECT status FROM pipeline_runs WHERE run_key = ?", run_key)
+    assert status == "running" and _exported_status(root, run_key) == "running"
+
+
+def test_a_failure_after_the_export_shows_the_run_failed_in_the_exported_table(copy_of_run, monkeypatch) -> None:
+    """Power BI reads the files, not SQLite: a run that fails after its export must not look finished there."""
+    root, config = copy_of_run
+    cfg = load_config(config)
+    run_key = next((root / "data/interim/runs").glob("*.json")).stem
+    _reopen(root, run_key)
+    run_task("export", run_key, cfg)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("the manifest is gone")
+
+    monkeypatch.setattr(pipeline, "mark_manifest", boom)
+    with pytest.raises(RuntimeError, match="manifest is gone"):
+        run_task("report", run_key, cfg)
+    [(status,)] = sqlite_rows(root, "SELECT status FROM pipeline_runs WHERE run_key = ?", run_key)
+    assert status == "failed" and _exported_status(root, run_key) == "failed"
+
+
 def test_a_failing_task_marks_the_run_failed_and_keeps_the_error(copy_of_run, monkeypatch) -> None:
     root, config = copy_of_run
     cfg = load_config(config)

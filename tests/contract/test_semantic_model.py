@@ -204,3 +204,14 @@ def test_the_last_published_month_counts_only_runs_that_finished_ok() -> None:
     """A run that loaded a month and then failed must not make the dashboard look fresh (RF20)."""
     [measure] = [m for m in MODEL.measures if m.name_es == "Último mes publicado"]
     assert 'dim_pipeline_run[status] = "ok"' in measure.dax
+
+
+def test_the_committed_dashboard_design_shows_the_measures_of_the_model() -> None:
+    """The HTML is generated from MODEL; a hand edit or a stale render must not disagree with it."""
+    import html
+    from pathlib import Path
+
+    design = (Path(__file__).parents[2] / "dashboard" / "powerbi-design.html").read_text(encoding="utf-8")
+    single_line = [m for m in MODEL.measures if "\n" not in m.dax]
+    missing = [m.name_es for m in single_line if html.escape(m.dax, quote=True) not in design]
+    assert missing == []
