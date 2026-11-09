@@ -30,7 +30,9 @@ from oilgas.arps import ArpsParams, FitResult, fit_series, predict_rate
 from oilgas.baselines import naive_last, naive_mean3
 from oilgas.calibration import ANY_BUCKET, CELL, apply_bands, band_quantiles, log_error
 from oilgas.config import ArpsConfig, BacktestConfig, PipelineConfig
+from oilgas.features import base_rate, features_at, training_examples
 from oilgas.metrics import additive_components
+from oilgas.ml import fit_quantile_models, predict_volumes
 from oilgas.series import (
     AGE_BUCKETS,
     FLUIDS,
@@ -208,6 +210,9 @@ def _frame_from_groups(groups: list[dict[str, np.ndarray]]) -> pd.DataFrame:
         data["actual"], data["p50"] = np.empty(0), np.empty(0)
     else:
         data = {name: np.concatenate([g[name] for g in parts]) for name in _GROUP_COLUMNS}
+        for band in ("p10", "p90"):  # only a model with its own bands (ML) brings them
+            if all(band in g for g in parts):
+                data[band] = np.concatenate([g[band] for g in parts])
     order = np.lexsort((data["horizon"], data["method"], data["origin"], data["well_id"], data["fluid"]))
     data = {name: values[order] for name, values in data.items()}
     n = len(data["horizon"])
@@ -223,9 +228,9 @@ def _frame_from_groups(groups: list[dict[str, np.ndarray]]) -> pd.DataFrame:
             "n_post_peak": data["n_post_peak"].astype(np.int16),
             "target_days": data["target_days"].astype(np.int8),
             "actual": data["actual"].astype(np.float64),
-            "p10": np.full(n, np.nan),
+            "p10": data["p10"].astype(np.float64) if "p10" in data else np.full(n, np.nan),
             "p50": data["p50"].astype(np.float64),
-            "p90": np.full(n, np.nan),
+            "p90": data["p90"].astype(np.float64) if "p90" in data else np.full(n, np.nan),
             "fit_status": categorical(data["fit_status"], STATUS_CATEGORIES),
         }
     )[FRAME_COLUMNS]
@@ -272,6 +277,85 @@ def run_point_methods(panel: SeriesPanel, plan: BacktestPlan, cfg: PipelineConfi
     else:
         with ProcessPoolExecutor(max_workers=bt.n_workers) as pool:
             groups = list(pool.map(_run_group, tasks))
+    return _frame_from_groups(groups)
+
+
+# --- machine learning -----------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _OriginState:
+    rows: np.ndarray  # series active at the origin
+    segment: np.ndarray  # index into SEGMENT_CATEGORIES, per row
+    bucket: np.ndarray  # index into AGE_BUCKETS, per row
+    n_post_peak: np.ndarray
+
+
+def _origin_state(rate: np.ndarray, col: int, min_points: int) -> _OriginState:
+    """Segment and age of every series active at `col`, with the same rules the point methods use."""
+    rows, segments, buckets, counts = [], [], [], []
+    for i in range(rate.shape[0]):
+        segment = segment_at(rate[i], col, min_points)
+        if segment == "inactive":
+            continue
+        n_post = post_peak_points(rate[i], col)[0].size
+        rows.append(i)
+        segments.append(SEGMENT_CATEGORIES.index(segment))
+        buckets.append(AGE_BUCKETS.index(age_bucket(n_post, min_points)))
+        counts.append(n_post)
+    return _OriginState(
+        np.array(rows, dtype=np.int64), np.array(segments, dtype=np.int64),
+        np.array(buckets, dtype=np.int64), np.array(counts, dtype=np.int64),
+    )
+
+
+def run_ml(panel: SeriesPanel, plan: BacktestPlan, cfg: PipelineConfig) -> pd.DataFrame:
+    """Forecast the evaluation pairs with the quantile gradient boosting (``ml_hgb``), bands included.
+
+    One set of three models per fluid and evaluation horizon, retrained every ``ml.retrain_every``
+    evaluation origins on examples whose targets are not after the retraining origin; the models
+    serve the origins of their block with features computed at each origin. A block is trained the
+    first time one of its origins has a pair to forecast.
+    """
+    bt, ml = cfg.backtest, cfg.ml
+    eps = bt.epsilon_rate
+    last_col = min(column_of(panel, plan.last_index), len(panel.period_index) - 1)
+    eval_cols = [column_of(panel, o) for o in plan.eval_origins]
+    groups: list[dict[str, np.ndarray]] = []
+    for f_code, fluid in enumerate(FLUIDS):
+        rate, volume = panel.rate[fluid], panel.volume[fluid]
+        states = [_origin_state(rate, col, cfg.arps.min_post_peak_points) for col in eval_cols]
+        for horizon in bt.eval_horizons:
+            models, trained_block = None, -1
+            for idx, col in enumerate(eval_cols):
+                target = col + horizon
+                if target > last_col:
+                    continue
+                state = states[idx]
+                keep = ~np.isnan(rate[state.rows, target])
+                rows = state.rows[keep]
+                if rows.size == 0:
+                    continue
+                block = idx // ml.retrain_every
+                if block != trained_block:
+                    X, y = training_examples(panel, fluid, horizon, eval_cols[block * ml.retrain_every], ml, eps)
+                    models = fit_quantile_models(X, y, ml) if len(X) else None
+                    trained_block = block
+                if models is None:
+                    continue
+                X = features_at(panel, fluid, col, rows, horizon, eps)
+                days = np.full(rows.size, float(panel.days_in_month[target]))
+                volumes = predict_volumes(models, X, base_rate(panel, fluid, col, rows), days, eps)
+                n = rows.size
+                groups.append(
+                    {
+                        "fluid": np.full(n, f_code), "well_id": panel.well_ids[rows], "origin": np.full(n, plan.eval_origins[idx]),
+                        "method": np.full(n, METHOD_CATEGORIES.index(ML_METHOD)), "segment": state.segment[keep],
+                        "age_bucket": state.bucket[keep], "n_post_peak": state.n_post_peak[keep],
+                        "fit_status": np.zeros(n, dtype=np.int64), "horizon": np.full(n, horizon), "target_days": days,
+                        "actual": volume[rows, target], "p10": volumes[:, 0], "p50": volumes[:, 1], "p90": volumes[:, 2],
+                    }
+                )
     return _frame_from_groups(groups)
 
 
@@ -401,7 +485,7 @@ def write_metrics(conn, metrics: pd.DataFrame, run_key: str) -> None:
 
 
 def run_backtest(ctx: RunContext) -> dict:
-    """The ``backtest`` task: panel from the warehouse, point methods, bands, metrics to SQLite, forecasts to Parquet."""
+    """The ``backtest`` task: panel from the warehouse, point methods and their bands, the ML model, metrics to SQLite, forecasts to Parquet."""
     cfg = ctx.cfg
     started = time.perf_counter()
     conn = connect(cfg.paths.warehouse)
@@ -414,12 +498,14 @@ def run_backtest(ctx: RunContext) -> dict:
         t_point = time.perf_counter()
         point = add_empirical_bands(point, plan, cfg.backtest)
         t_bands = time.perf_counter()
-        evaluation = evaluation_pairs(point, plan, cfg.backtest)
+        ml = run_ml(panel, plan, cfg)
+        t_ml = time.perf_counter()
+        evaluation = evaluation_pairs(pd.concat([point, ml], ignore_index=True), plan, cfg.backtest)
         metrics = backtest_metrics(evaluation, panel.attrs)
         out_dir = Path(cfg.paths.interim_dir) / "backtest"
         _write_parquet(point, out_dir / "point_forecasts.parquet")
-        errors = error_frame(point, cfg.backtest.epsilon_rate)
-        _write_parquet(errors, out_dir / "errors.parquet")
+        _write_parquet(ml, out_dir / "ml_forecasts.parquet")
+        _write_parquet(error_frame(point, cfg.backtest.epsilon_rate), out_dir / "errors.parquet")
         write_metrics(conn, metrics, ctx.run_key)
     finally:
         conn.close()
@@ -427,9 +513,10 @@ def run_backtest(ctx: RunContext) -> dict:
     return {
         "wells": int(len(panel.well_ids)),
         "origins": {"warmup": plan.warmup_origins, "eval": plan.eval_origins, "last_index": plan.last_index},
-        "forecast_rows": int(len(point)),
+        "forecast_rows": int(len(point) + len(ml)),
+        "ml_rows": int(len(ml)),
         "pairs_evaluated": int(len(evaluation)),
         "metric_rows": int(len(metrics)),
-        "seconds": {"panel": t_panel - started, "point_methods": t_point - t_panel, "bands": t_bands - t_point, "total": done - started},
-        "files": [str(out_dir / "point_forecasts.parquet"), str(out_dir / "errors.parquet")],
+        "seconds": {"panel": t_panel - started, "point_methods": t_point - t_panel, "bands": t_bands - t_point, "ml": t_ml - t_bands, "total": done - started},
+        "files": [str(out_dir / name) for name in ("point_forecasts.parquet", "ml_forecasts.parquet", "errors.parquet")],
     }
