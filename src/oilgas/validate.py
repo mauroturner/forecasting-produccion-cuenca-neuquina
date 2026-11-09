@@ -120,7 +120,12 @@ class ValidationReport:
 
 
 class ValidationError(RuntimeError):
-    """The file was rejected: at least one blocking rule failed."""
+    """The file was rejected: at least one blocking rule failed (raised by the ``validate`` task of the pipeline)."""
+
+    def __init__(self, report: ValidationReport) -> None:
+        self.report = report
+        failing = ", ".join(r.rule_id for r in report.results if r.severity is Severity.BLOCKING and not r.passed)
+        super().__init__(f"validation of {report.run_key} rejected the file: blocking rules failed: {failing}")
 
 
 # --- helpers ----------------------------------------------------------------------------------------
@@ -530,3 +535,20 @@ def write_report(report: ValidationReport, out_dir: Path) -> tuple[Path, Path]:
         _atomic_write(directory / f"{stem}.json", text_json)
         _atomic_write(directory / f"{stem}.md", text_md)
     return out_dir / "latest.json", out_dir / "latest.md"
+
+
+def read_report(path: Path) -> ValidationReport:
+    """The report written by ``write_report`` (``latest.json`` or a copy in ``history/``), as a ``ValidationReport``."""
+    document = json.loads(Path(path).read_text(encoding="utf-8"))
+    by_label = {label: severity for severity, label in SEVERITY_ES.items()}
+    results = [
+        RuleResult(
+            r["rule_id"], r["name_es"], by_label[r["severity"]], r["status"] == "pasa",
+            r["rows_affected"], r["wells_affected"], r["examples"],
+        )
+        for r in document["results"]
+    ]
+    return ValidationReport(
+        document["run_key"], document["source_sha256"], document["rows_file"], document["rows_subset"], document["wells_subset"],
+        document["first_period_key"], document["last_period_key"], results, tuple(document["not_evaluated"]),
+    )

@@ -434,8 +434,19 @@ def test_the_report_files_are_reproducible(valid, tmp_path: Path) -> None:
     assert first[1].read_bytes() == second[1].read_bytes()
 
 
-def test_validation_error_is_a_runtime_error() -> None:
-    assert issubclass(ValidationError, RuntimeError)
+def test_a_validation_error_carries_the_report_and_names_the_blocking_rules(malformed) -> None:
+    report, _ = run(malformed("month_13"), run_key="r-err")
+    error = ValidationError(report)
+    assert isinstance(error, RuntimeError) and error.report is report
+    assert "r-err" in str(error) and "V04" in str(error) and "rejected" in str(error)
+
+
+def test_a_written_report_reads_back_as_the_same_report(valid, malformed, tmp_path: Path) -> None:
+    from oilgas.validate import read_report
+
+    for report in (valid[0], run(malformed("month_13"), run_key="r-bad")[0]):
+        json_path, _ = write_report(report, tmp_path / report.run_key)
+        assert read_report(json_path) == report
 
 
 def test_i02_counts_the_published_variants_of_the_automatic_remark(valid, edit) -> None:

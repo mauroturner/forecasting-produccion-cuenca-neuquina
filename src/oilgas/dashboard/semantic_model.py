@@ -449,7 +449,7 @@ def _build_measures() -> tuple[Measure, ...]:
             "CALCULATE ( SELECTEDVALUE ( fact_well_fit[status] ), dim_method[method_key] = \"arps_mh_b2\", fact_well_fit[origin_period_key] = [Último origen] )",
             "@", "ok, fallback_exp o fallback_naive.",
         ),
-        Measure("Último mes publicado", "CALCULATE ( MAX ( dim_pipeline_run[last_period_key] ), dim_pipeline_run[status] = \"ok\" )", "0", "Último mes de la última corrida exitosa (AAAAMM)."),
+        Measure("Último mes publicado", "MAX ( dim_pipeline_run[last_period_key] )", "0", "Último mes cargado en el almacén (AAAAMM): solo las corridas que cargaron una publicación tienen este dato."),
         Measure(
             "Días desde el fin del último mes",
             "VAR k = [Último mes publicado]\n"

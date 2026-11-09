@@ -1,0 +1,8 @@
+# The libraries of requirements.txt with ranges instead of exact versions, so that they stay compatible with
+# the constraints of the Airflow image (decisions D17 and D21). The project itself is mounted at /opt/oilgas.
+numpy>=2.1,<2.5
+pandas>=2.2.3,<3.0
+scipy>=1.14,<1.18
+scikit-learn>=1.6,<1.10
+pyarrow>=18
+matplotlib>=3.9,<3.12

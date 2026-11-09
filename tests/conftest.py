@@ -158,3 +158,18 @@ def star_outputs(tmp_path_factory: pytest.TempPathFactory, modeled_warehouse: Pa
     export_star_schema(conn, root / "powerbi", MODEL, "r1", "ab" * 32, "Fuente: Secretaría de Energía (CC BY 4.0).")
     conn.close()
     return root / "powerbi"
+
+
+@pytest.fixture(scope="session")
+def quick_run(tmp_path_factory: pytest.TempPathFactory, fixture_csv: Path):
+    """The whole pipeline in quick mode on the synthetic publication: ``(root, config path, outcome)``. Read-only."""
+    from datetime import UTC, datetime
+
+    from oilgas.config import load_config
+    from oilgas.pipeline import run_all
+    from tests.fixtures.modeling import write_config
+
+    root = tmp_path_factory.mktemp("quick_run")
+    config = write_config(root, fixture_csv)
+    outcome = run_all(load_config(config), now=datetime(2025, 1, 20, 9, tzinfo=UTC))
+    return root, config, outcome
