@@ -122,6 +122,7 @@ Regla: menor pinball escalada promedio en los horizontes 1, 3, 6, 12; en un empa
 - A 1 mes **no supera** a repetir el último mes (WAPE 31,6 % contra 23,1 % en petróleo; le gana en el 20 % de los pozos), y a 3 meses la ventaja es mínima. La curva empieza a pagar desde los 6 meses.
 - El machine learning es el mejor método en todas las celdas (WAPE a 12 meses: 42 % en petróleo y 47 % en gas) y por eso es el método en uso por defecto. Le gana a repetir el último mes en el 72 % y el 74 % de los pozos a 12 meses. Aporta más en los pozos jóvenes, donde la curva de Arps no puede ajustarse.
 - Las bandas P10-P90 cubren entre 0,77 y 0,81 de los valores reales (objetivo 0,80). Las del machine learning quedan algo por debajo del objetivo, dentro de «calibrado».
+- Los datos de fractura (preliminares) **no mejoran** el machine learning: en una ablación sobre los mismos 506.386 pares no mejoran ninguna de las 16 celdas (cambio medio de la pinball escalada: +0,7 %), con una regla escrita antes de correrla (decisión D38). Quedan fuera del modelo base.
 - Lo que sigue pendiente de verificar: una evaluación independiente de estos resultados (ver «Con IA, de punta a punta») y su estabilidad en otras ventanas de tiempo. Todas las celdas, método por método, están en la [ficha del modelo](docs/model-card.md).
 
 ![WAPE por método y horizonte](docs/figures/method_comparison.png)
@@ -159,7 +160,7 @@ La primera tarea corta el flujo si la publicación no cambió; la tercera lo cor
 | Subconjunto | cuenca Neuquina, no convencional, toda la historia: 413.865 filas, 4.937 pozos, 52 operadoras, 139 yacimientos, de 2006-01 a 2026-09 |
 | Unidades | petróleo y agua en m³, gas en miles de m³, por mes |
 | Calidad | 20,3 % de las filas sin petróleo ni gas; 2 gases negativos; 70 filas con más días de extracción que días del mes; 176 pozos con profundidad inválida |
-| Aparte | el archivo preliminar de fractura (solo para la ablación opcional, unidad U15) |
+| Aparte | el archivo preliminar de fractura (solo en la ablación, que mostró que no mejora el modelo; decisión D38) |
 
 Cada columna con su unidad está en [docs/data-dictionary.md](docs/data-dictionary.md).
 
@@ -187,7 +188,7 @@ Ecuaciones, límites y advertencias en [docs/model-card.md](docs/model-card.md).
 | [docs/research.md](docs/research.md) | La investigación del dataset y del stack |
 | [docs/requirements.md](docs/requirements.md) | Requerimientos, datos medidos y criterios de aceptación |
 | [docs/plan.md](docs/plan.md) | Arquitectura, módulos y unidades de trabajo |
-| [docs/decisions.md](docs/decisions.md) | Registro de decisiones (D01-D37), con motivo y lo que afecta cada una |
+| [docs/decisions.md](docs/decisions.md) | Registro de decisiones (D01-D38), con motivo y lo que afecta cada una |
 | [docs/data-dictionary.md](docs/data-dictionary.md) | Diccionario de datos con unidades |
 | [docs/model-card.md](docs/model-card.md) | Ficha del modelo: métodos, validación, resultados y límites |
 | [docs/runbook.md](docs/runbook.md) | Qué hacer ante una publicación atrasada, un cambio de forma, una descarga fallida y más |
@@ -199,7 +200,7 @@ Ecuaciones, límites y advertencias en [docs/model-card.md](docs/model-card.md).
 Este proyecto lo construyeron agentes de Claude Code, cada uno con el modelo que correspondía a su tarea, con una persona definiendo el rumbo. Lo que sigue es lo que efectivamente pasó, según el registro del proyecto:
 
 - **Bocetos y datos.** Un agente con Haiku investigó el dataset consultando la API del portal y las cabeceras de los CSV. Después un agente con Opus descargó el CSV completo y lo perfiló con scripts de Python desde la terminal (columnas, unidades, huecos, valores imposibles) y bosquejó tres enfoques: solo curvas, solo machine learning, o los dos comparados. Consultó la documentación de Airflow por un servidor MCP (Context7). El archivo lo leyó Python, no un servidor MCP.
-- **Decisiones.** Cada decisión de diseño quedó en [docs/decisions.md](docs/decisions.md) con su contexto, las opciones, el motivo y los campos y métricas que afecta. Es un registro enlazado, no un grafo de conocimiento. La mayoría de las 20 primeras las propuso el agente de planificación mientras el dueño estaba ausente, y queda constancia de cuáles esperan su revisión.
+- **Decisiones.** Cada decisión de diseño quedó en [docs/decisions.md](docs/decisions.md) con su contexto, las opciones, el motivo y los campos y métricas que afecta. Es un registro enlazado, no un grafo de conocimiento. La decisión de sumar o no el dataset público de fractura, que todavía es preliminar, se resolvió midiendo: una ablación con una regla fijada antes de correrla (D38). La mayoría de las 20 primeras las propuso el agente de planificación mientras el dueño estaba ausente, y queda constancia de cuáles esperan su revisión.
 - **Programación.** Un agente con Sonnet construyó cada unidad de trabajo a partir del plan, con la prueba escrita primero y una comprobación de mutación por unidad (romper a propósito la lógica y ver qué prueba lo detecta).
 - **Revisión.** La revisión nativa de Gentle AI revisó unidades por separado. Encontró un error real en la carga a la base (un subconjunto vacío borraba la tabla antes de fallar), que se corrigió con la prueba primero, y dejó advertencias que se resolvieron una por una.
 - **Memoria.** Engram, un servidor MCP de memoria persistente, guarda el contexto entre sesiones; el documento de seguimiento conserva las palabras del dueño tal cual.
@@ -239,6 +240,9 @@ $env:PYTHONPATH = "src"
 .venv\Scripts\python -m oilgas run
 # o, con el archivo ya descargado:
 .venv\Scripts\python -m oilgas run --adopt data\raw\produccin-de-pozos-de-gas-y-petrleo-no-convencional.csv
+
+# Ablación opcional: el machine learning con y sin datos de fractura (unos 15 minutos)
+.venv\Scripts\python -m oilgas ablation-fracture
 
 # Figuras de la documentación y bloque de resultados del README
 .venv\Scripts\python -m oilgas figures

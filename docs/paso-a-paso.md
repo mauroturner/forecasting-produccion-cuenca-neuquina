@@ -110,6 +110,12 @@ El README en el orden del plan, el diccionario de datos, la ficha del modelo, el
 
 Se actualizaron además `LANDING-EXPANSION.md` (SciPy, NumPy, SQLite, Parquet con pyarrow, matplotlib y pytest) y `SITE-UPDATES.md` con los resultados reales.
 
+## 7. La ablación con fractura (U15, Sonnet)
+
+La pregunta que dejó abierta D15: ¿sirve sumar el archivo preliminar de fractura? Primero se escribió la regla de decisión (mejorar al menos 2 % en 12 de 16 celdas y no empeorar más de 2 % en ninguna) y recién después se corrió. El código agrega, detrás de una opción apagada, cinco variables de fractura que en cada mes solo conocen las fracturas ya terminadas (una prueba verifica que perturbar las posteriores no cambia nada), y un comando compara el machine learning con y sin ellas sobre los mismos pares.
+
+Se corrió completo, no sobre una muestra: 4.937 pozos, 24 orígenes, 506.386 pares por modelo, 861 segundos. El modelo «sin» reprodujo el de la corrida real hasta el sexto decimal, así que la comparación es limpia. Salió que **no ayuda**: 0 de 16 celdas mejoran, el cambio medio es +0,7 % y en la mitad de los pozos mejora y en la otra mitad no. Las variables de fractura quedan fuera del modelo base (D38).
+
 ## Lo que falta
 
 - **Evaluación final independiente con Opus** de la lógica de todo el proyecto: todavía no se hizo. Es el control que cubre, entre otras cosas, la unidad U01, que la revisión nativa no pudo tomar.

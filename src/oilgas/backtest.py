@@ -31,6 +31,7 @@ from oilgas.calibration import ANY_BUCKET, CELL, apply_bands, band_quantiles, lo
 from oilgas.config import ArpsConfig, BacktestConfig, PipelineConfig
 from oilgas.features import base_rate, features_at, training_examples
 from oilgas.files import atomic_path
+from oilgas.fracture import model_panel
 from oilgas.metrics import additive_components
 from oilgas.ml import fit_quantile_models, predict_volumes
 from oilgas.reporting import select_methods, store_summary, summarize
@@ -39,7 +40,6 @@ from oilgas.series import (
     FLUIDS,
     SeriesPanel,
     age_bucket,
-    build_panel,
     column_of,
     peak_column,
     post_peak_points,
@@ -500,7 +500,7 @@ def run_backtest(ctx: RunContext) -> dict:
     conn = connect(cfg.paths.warehouse)
     try:
         apply_schema(conn)
-        panel = build_panel(conn, cfg.backtest.well_sample, cfg.backtest.seed)
+        panel = model_panel(conn, cfg)
         plan = plan_origins(int(panel.period_index[-1]), cfg.backtest)
         t_panel = time.perf_counter()
         point = run_point_methods(panel, plan, cfg)

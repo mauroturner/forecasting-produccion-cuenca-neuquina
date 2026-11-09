@@ -25,7 +25,8 @@ from oilgas.baselines import naive_mean3
 from oilgas.features import base_rate, features_at, training_examples
 from oilgas.ml import fit_quantile_models, predict_volumes
 from oilgas.reporting import read_selection
-from oilgas.series import FLUIDS, SeriesPanel, age_bucket, build_panel, days_in_months, peak_column, post_peak_points, segment_at
+from oilgas.fracture import model_panel
+from oilgas.series import FLUIDS, SeriesPanel, age_bucket, days_in_months, peak_column, post_peak_points, segment_at
 from oilgas.warehouse import apply_schema, connect
 
 logger = logging.getLogger(__name__)
@@ -190,7 +191,7 @@ def run_production_forecast(ctx: RunContext) -> dict:
         selection = read_selection(conn)
         if selection.empty:
             raise ValueError("model_selection is empty: run the backtest task before the forecast (it chooses the method in use)")
-        panel = build_panel(conn, cfg.backtest.well_sample, cfg.backtest.seed)
+        panel = model_panel(conn, cfg)
         col = len(panel.period_index) - 1
         origin = int(panel.period_index[col])
         origin_key = int(period_key(origin))

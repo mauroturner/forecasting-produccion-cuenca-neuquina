@@ -16,6 +16,7 @@ from sklearn.ensemble import HistGradientBoostingRegressor
 
 from oilgas.config import MLConfig
 from oilgas.features import CATEGORICAL_FEATURES, FEATURE_COLUMNS, OTHER
+from oilgas.fracture import FRACTURE_FEATURES
 
 
 class QuantileModels(dict):
@@ -29,7 +30,7 @@ class QuantileModels(dict):
 
     def cast(self, X: pd.DataFrame) -> pd.DataFrame:
         """`X` with the feature columns in order and the categorical ones as categories of the fitted levels (+ "other")."""
-        out = X[FEATURE_COLUMNS].copy()
+        out = X[[*FEATURE_COLUMNS, *(c for c in FRACTURE_FEATURES if c in X.columns)]].copy()
         for name in CATEGORICAL_FEATURES:
             levels = self.levels[name]
             values = out[name].astype(object).where(out[name].isin(levels), OTHER)

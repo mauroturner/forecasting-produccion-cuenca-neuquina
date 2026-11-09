@@ -101,6 +101,7 @@ class MLConfig:
     top_operators: int
     top_formations: int
     top_extraction_methods: int
+    fracture_features: bool  # the ablation of RF21: add the fracture features to the model (off in the base model, D15)
 
 
 @dataclass(frozen=True)
@@ -123,6 +124,7 @@ class PathsConfig:
     reports_dir: Path
     dashboard_html: Path
     readme: Path
+    fracture_csv: Path  # the preliminary fracture file; read only when ml.fracture_features is on or by the ablation
 
 
 @dataclass(frozen=True)

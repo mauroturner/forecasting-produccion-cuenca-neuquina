@@ -63,3 +63,16 @@ def test_the_thresholds_of_the_summary_are_the_preregistered_ones(project_root: 
     assert thresholds["coverage_target"] == criteria.coverage_target == 0.80
     assert thresholds["coverage_acceptable"] == list(criteria.coverage_acceptable) == [0.70, 0.90]
     assert thresholds["share_beats_horizon"] == criteria.share_beats_horizon == 12
+
+
+def test_the_versioned_ablation_report_follows_its_own_rule(project_root: Path) -> None:
+    """The decision about the fracture data is the preregistered rule applied to the cells of the report, and the Markdown is that report."""
+    from oilgas import ablation
+
+    document = json.loads((project_root / "reports" / "fracture_ablation.json").read_text(encoding="utf-8"))
+    comparison = pd.DataFrame(document["comparison"])
+    assert len(comparison) == 16 and document["scope"]["wells"] == 4937
+    assert document["decision"] == ablation.decide(comparison)  # nobody edited the verdict by hand
+    assert document["decision"]["rule"] == ablation.DECISION_RULE
+    expected = ablation.render_markdown(comparison, document["decision"], document["scope"])
+    assert (project_root / "reports" / "fracture_ablation.md").read_text(encoding="utf-8") == expected

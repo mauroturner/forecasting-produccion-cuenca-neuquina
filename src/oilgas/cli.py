@@ -17,6 +17,7 @@ from pathlib import Path
 import pandas as pd
 
 from oilgas.config import PROJECT_ROOT, PipelineConfig, load_config
+from oilgas.ablation import run_ablation
 from oilgas.dashboard.semantic_model import MODEL
 from oilgas.docs import COLUMNS_END, COLUMNS_START, METHODS_END, METHODS_START, render_dictionary_tables, render_method_tables
 from oilgas.figures import make_figures
@@ -52,6 +53,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     figures = commands.add_parser("figures", help="draw the figures of the documentation (docs/figures/*.png) from the last run")
     figures.add_argument("--config", type=Path)
+
+    ablation = commands.add_parser("ablation-fracture", help="compare the machine learning with and without fracture features (RF21, D15)")
+    ablation.add_argument("--config", type=Path)
+    ablation.add_argument("--wells", type=int, metavar="N", help="a fixed sample of N wells instead of the configured ones (0 = all)")
 
     fixture = commands.add_parser("make-fixture", help="write a synthetic publication for tests and quick runs")
     fixture.add_argument("output", type=Path, metavar="OUTPUT.csv")
@@ -143,6 +148,14 @@ def main(argv: list[str] | None = None) -> int:
                 return EXIT_USAGE
             for path in paths:
                 _say(f"wrote {path}")
+            return EXIT_OK
+        if args.command == "ablation-fracture":
+            result = run_ablation(cfg, args.wells)
+            _say(f"{result['wells']} wells, {result['pairs']} pairs per model, {result['seconds']} s: "
+                 f"{result['cells_improved']} of {result['cells']} cells improve; the fracture data "
+                 f"{'enter' if result['add_to_base'] else 'do not enter'} the base model")
+            _say(f"wrote {result['json']}")
+            _say(f"wrote {result['markdown']}")
             return EXIT_OK
         if args.command == "task":
             result = run_task(args.task, args.run_key, cfg)

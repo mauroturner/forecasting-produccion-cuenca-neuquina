@@ -92,6 +92,10 @@ Ningún umbral ni método se cambió después de ver estos números.
 
 Con el origen en 2026-09, la curva base (`arps_mh_b2`) se ajustó a 3.196 series de petróleo y 3.702 de gas: 6.897 de 6.898 con estado `ok` y una con la exponencial de respaldo. Aun así, el 16,3 % de los ajustes de petróleo y el 12,6 % de los de gas tienen un error logarítmico mayor que 1,0 y quedan marcados `needs_review` en `fact_well_fit`: son pozos con historia muy irregular (cierres, reinicios, volúmenes que saltan) en los que la curva sigue una tendencia, no el detalle. El ajuste converge, pero no siempre describe bien al pozo.
 
+### Ablación con datos de fractura
+
+El machine learning con y sin cinco variables de fractura (etapas, longitud de rama, arena, agua y meses desde la última fractura terminada; solo con fracturas cuya fecha de fin es anterior o igual al origen), sobre los mismos 506.386 pares y con una regla escrita antes de la corrida: sumarlas al modelo base solo si la pinball escalada mejora al menos 2 % en 12 de las 16 celdas y no empeora más de 2 % en ninguna. **Mejoran 0 de 16 celdas**; el cambio medio es +0,7 % (algo peor) y los pozos donde mejora son entre el 46,5 % y el 51,3 %. Por eso las variables de fractura no entran al modelo base (D38; informe completo en `reports/fracture_ablation.md`). El resultado vale para el archivo preliminar de hoy.
+
 ### Todas las celdas
 
 <!-- methods:start -->
@@ -212,7 +216,7 @@ Contra RNF02: backtest completo 23,9 min (tope 45 min) y flujo completo 30,9 min
 - **Datos ya revisados.** El backtest usa la publicación de hoy, con las correcciones que la Secretaría hizo después; no las versiones que existían en cada mes. Los errores reales en producción pueden ser algo mayores.
 - **Tiempo calendario.** La curva avanza en meses calendario desde el pico; los meses en cero o sin fila no entran al ajuste pero el tiempo sigue corriendo. Un pozo cerrado un año y reabierto se ajusta a lo producido, no a una curva nueva.
 - **Cierres, intervenciones y operadoras.** Una nueva fractura, un cierre largo o un cambio de operadora (979 pozos cambiaron en la historia) rompen la hipótesis de una declinación continua. El pico se recalcula si hay uno mayor, pero el modelo no sabe por qué.
-- **Fractura fuera del modelo base.** El archivo de fractura es preliminar («sujeto a revisión») y el 41 % de sus longitudes de rama figuran como 0. Su aporte se mide en una ablación aparte (unidad U15 del plan).
+- **Fractura fuera del modelo base.** El archivo de fractura es preliminar («sujeto a revisión») y el 41 % de sus longitudes de rama figuran como 0. Su aporte se midió en una ablación aparte y no mejora el modelo (ver «Ablación con datos de fractura»).
 - **Horizontes intermedios sin validar.** El backtest evalúa 1, 3, 6 y 12 meses; los horizontes 2, 4, 5 y 7 a 11 del pronóstico en uso salen del mismo procedimiento pero no se validaron uno por uno.
 - **Estacionalidad del gas.** El gas cae cada septiembre; solo el machine learning conoce el mes del año (`target_month`). Las curvas de Arps no tienen estacionalidad.
 - **Series jóvenes.** Con menos de 6 puntos desde el pico no hay curva de Arps; el pronóstico viene del promedio o del machine learning.

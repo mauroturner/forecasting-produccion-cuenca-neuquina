@@ -71,6 +71,7 @@ seed = 42
 top_operators = 15
 top_formations = 8
 top_extraction_methods = 6
+fracture_features = false         # RF21, D15: fracture features only in the ablation (python -m oilgas ablation-fracture)
 
 [criteria]                       # pre-registered (AC14-AC16)
 share_beats_naive_min = 0.60
@@ -89,3 +90,4 @@ outputs_dir = "outputs/powerbi"
 reports_dir = "reports"
 dashboard_html = "dashboard/powerbi-design.html"
 readme = "README.md"
+fracture_csv = "data/raw/datos-de-fractura-de-pozos-de-hidrocarburos-adjunto-iv-actualizacin-diaria.csv"

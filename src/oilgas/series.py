@@ -43,6 +43,8 @@ class SeriesPanel:
     # to that month (forward filled, never a later one), -1 before the first report.
     period_codes: dict[str, np.ndarray] = field(default_factory=dict)
     categories: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    # Optional fracture features (RF21, D15): feature name -> (W, T) array of what is known at each month; None in the base model.
+    fracture: dict[str, np.ndarray] | None = None
 
 
 def days_in_months(period_index: np.ndarray) -> np.ndarray:

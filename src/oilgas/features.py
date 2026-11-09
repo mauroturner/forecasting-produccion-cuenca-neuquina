@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 from oilgas.config import MLConfig
+from oilgas.fracture import FRACTURE_FEATURES, fracture_at
 from oilgas.series import ACTIVITY_MONTHS, SeriesPanel
 
 LAGS = 6
@@ -109,6 +110,10 @@ def features_at(panel: SeriesPanel, fluid: str, col: int, rows: np.ndarray | Non
     frame["formation"] = attrs["formation_name"].fillna(OTHER).to_numpy(dtype=object)
     for feature, key in PERIOD_CATEGORIES.items():
         frame[feature] = _labels(panel.period_codes[key][idx, col], panel.categories[key])
+    if panel.fracture is not None:  # the ablation: only what is known at `col` (fractures ended by then)
+        for name, values in fracture_at(panel, col, idx).items():
+            frame[name] = values
+        return frame[[*FEATURE_COLUMNS, *FRACTURE_FEATURES]].reset_index(drop=True)
     return frame[FEATURE_COLUMNS].reset_index(drop=True)
 
 
