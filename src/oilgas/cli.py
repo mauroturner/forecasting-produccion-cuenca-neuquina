@@ -9,11 +9,16 @@ validation (the warehouse and the exported files are as they were).
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 from pathlib import Path
 
+import pandas as pd
+
 from oilgas.config import PROJECT_ROOT, PipelineConfig, load_config
+from oilgas.dashboard.semantic_model import MODEL
+from oilgas.docs import COLUMNS_END, COLUMNS_START, METHODS_END, METHODS_START, render_dictionary_tables, render_method_tables
 from oilgas.figures import make_figures
 from oilgas.pipeline import TASK_IDS, TASKS, make_run_key, run_all, run_task
 from oilgas.reporting import sync_block
@@ -42,7 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     task.add_argument("--config", type=Path)
     task.add_argument("--run-key", help="the run it belongs to (a new run if omitted)")
 
-    sync = commands.add_parser("docs-sync", help="copy the backtest results block into the README")
+    sync = commands.add_parser("docs-sync", help="copy the backtest results block into the README and fill the generated tables of docs/")
     sync.add_argument("--config", type=Path)
 
     figures = commands.add_parser("figures", help="draw the figures of the documentation (docs/figures/*.png) from the last run")
@@ -77,6 +82,26 @@ def docs_sync(cfg: PipelineConfig) -> bool:
     return sync_block(cfg.paths.readme, RESULTS_START, RESULTS_END, summary.read_text(encoding="utf-8"))
 
 
+def sync_generated_docs(cfg: PipelineConfig) -> list[tuple[str, bool]]:
+    """Fill the generated tables of ``docs/``: the dictionary's columns and the model card's results; a missing document is skipped.
+
+    Returns ``(file name, changed)`` for each document that exists.
+    """
+    docs_dir = Path(cfg.paths.readme).parent / "docs"
+    done: list[tuple[str, bool]] = []
+    dictionary = docs_dir / "data-dictionary.md"
+    if dictionary.exists():
+        done.append((dictionary.name, sync_block(dictionary, COLUMNS_START, COLUMNS_END, render_dictionary_tables(MODEL))))
+    card = docs_dir / "model-card.md"
+    if card.exists():
+        summary_json = Path(cfg.paths.reports_dir) / "backtest_summary.json"
+        if not summary_json.exists():
+            raise FileNotFoundError(f"{summary_json} does not exist: run the pipeline first")
+        summary = pd.DataFrame(json.loads(summary_json.read_text(encoding="utf-8"))["summary"])
+        done.append((card.name, sync_block(card, METHODS_START, METHODS_END, render_method_tables(summary))))
+    return done
+
+
 def draw_figures(cfg: PipelineConfig) -> list[Path]:
     """Draw the documentation figures from the warehouse of the last run into ``docs/figures`` next to the README."""
     warehouse = Path(cfg.paths.warehouse)
@@ -107,6 +132,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "docs-sync":
             _say("README updated" if docs_sync(cfg) else "README already up to date")
+            for name, changed in sync_generated_docs(cfg):
+                _say(f"{name} updated" if changed else f"{name} already up to date")
             return EXIT_OK
         if args.command == "figures":
             try:
@@ -139,4 +166,4 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_FAILED
 
 
-__all__ = ["build_parser", "docs_sync", "draw_figures", "main", "make_run_key"]
+__all__ = ["build_parser", "docs_sync", "draw_figures", "sync_generated_docs", "main", "make_run_key"]

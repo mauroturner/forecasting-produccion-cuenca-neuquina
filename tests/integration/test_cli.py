@@ -120,3 +120,23 @@ def test_figures_without_a_run_exits_with_two_and_says_what_to_do(tmp_path: Path
     assert main(["figures", "--config", str(write_config(tmp_path, fixture_csv))]) == EXIT_USAGE
     assert "run the pipeline" in capsys.readouterr().err
     assert not (tmp_path / "docs").exists()
+
+
+
+def test_docs_sync_also_fills_the_dictionary_and_the_model_card_tables_when_they_exist(copy_of_run, capsys) -> None:
+    from oilgas.dashboard.semantic_model import MODEL
+    from oilgas.docs import COLUMNS_END, COLUMNS_START, METHODS_END, METHODS_START, render_dictionary_tables
+
+    root, config = copy_of_run
+    (root / "README.md").write_text(f"{START}\nold\n{END}\n", encoding="utf-8", newline="\n")
+    (root / "docs").mkdir()
+    dictionary, card = root / "docs/data-dictionary.md", root / "docs/model-card.md"
+    dictionary.write_text(f"# D\n{COLUMNS_START}\nold\n{COLUMNS_END}\n", encoding="utf-8", newline="\n")
+    card.write_text(f"# C\n{METHODS_START}\nold\n{METHODS_END}\n", encoding="utf-8", newline="\n")
+    assert main(["docs-sync", "--config", str(config)]) == EXIT_OK
+    out = capsys.readouterr().out
+    assert "data-dictionary.md updated" in out and "model-card.md updated" in out
+    assert render_dictionary_tables(MODEL).strip() in dictionary.read_text(encoding="utf-8")
+    assert "#### Petróleo, series elegibles" in card.read_text(encoding="utf-8") and "| `ml_hgb` |" in card.read_text(encoding="utf-8")
+    assert main(["docs-sync", "--config", str(config)]) == EXIT_OK
+    assert capsys.readouterr().out.count("already up to date") == 3
