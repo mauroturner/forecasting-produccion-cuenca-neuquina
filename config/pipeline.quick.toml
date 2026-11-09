@@ -1,0 +1,16 @@
+# Quick mode for tests and development: the same pipeline on a small backtest.
+# Starts from pipeline.toml (same folder) and overrides only what is listed here.
+extends = "pipeline.toml"
+
+[source]
+mode = "local"
+
+[backtest]
+n_eval_origins = 6
+n_warmup_origins = 6
+n_workers = 1
+
+[ml]
+max_iter = 40
+max_train_rows = 20000
+retrain_every = 6

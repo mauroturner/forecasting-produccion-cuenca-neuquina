@@ -1,0 +1,10 @@
+# Generated state of the pipeline; never versioned (RNF09)
+data/warehouse/
+data/interim/
+airflow/logs/
+airflow/.env
+reports/validation/history/
+.venv/
+__pycache__/
+.pytest_cache/
+*.egg-info/

@@ -1,0 +1,26 @@
+real_sample.csv
+===============
+
+Muestra de la publicación real "Producción de petróleo y gas por pozo (Capítulo IV)",
+recurso "producción de pozos de gas y petróleo no convencional", publicación del 2026-10-22
+(Last-Modified: Thu, 22 Oct 2026 21:00:56 GMT).
+
+Contenido: las 40 columnas y el formato originales (UTF-8 con BOM, punto decimal, tildes), con la
+historia completa de los 5 pozos de petróleo shale de la cuenca Neuquina con más meses de producción
+positiva que siguen activos en 2026-09:
+
+  idpozo   sigla               filas
+  3640     PPC.Nq.EC-4         248
+  126808   APS.Nq.ADC.x-1010   231
+  135480   YPF.Nq.LLL.x-475    220
+  136060   YPF.Nq.LGus.x-1     216
+  136203   YPF.Nq.LGus.x-2     215
+
+Total: 1 130 filas. Sirve para probar la lectura del formato verdadero (BOM, tildes, decimales); los
+demás accesorios se generan con make_fixture.py.
+
+Fuente de datos: Secretaría de Energía de la Nación, "Producción de petróleo y gas por pozo
+(Capítulo IV)", datos.gob.ar, licencia CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/).
+Modificaciones: se filtró por cuenca y tipo de recurso, se validaron registros, se estimaron curvas de
+declinación de Arps y se calcularon proyecciones y bandas P10/P50/P90. Para esta muestra, solo se
+seleccionaron cinco pozos; los valores no se modificaron.

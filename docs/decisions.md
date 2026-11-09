@@ -185,3 +185,30 @@ Estados: **vigente**, **pendiente del dueño**, **reemplazada por Dxx**.
 - **Motivo**: S9 pide fidelidad al sitio y, cuando la construcción real difiere, registrar la diferencia para corregir el sitio. Afirmar un MCP que no leyó los CSV sería falso.
 - **Afecta**: README ("Con IA, de punta a punta"); `docs/decision-graph.*` (opcional); el texto del sitio en `marca-personal`.
 - **Quién**: agente de planificación. **Estado**: pendiente del dueño (texto del sitio y opción A o B).
+
+## D21 Versiones resueltas del entorno (U01)
+
+- **Contexto**: D17 fijó rangos de partida y pidió reemplazarlos por las versiones exactas resueltas. Se instaló un `.venv` de Python 3.11.1 en Windows y `pip check` no reportó conflictos.
+- **Opciones**: fijar solo las dependencias directas; fijar también las transitivas.
+- **Decisión**: `requirements.txt` fija con `==` las directas (`numpy 2.4.6`, `pandas 2.3.3`, `scipy 1.17.1`, `scikit-learn 1.9.1`, `pyarrow 26.0.1`, `matplotlib 3.11.2`) y las transitivas que resolvió pip; `requirements-dev.txt` incluye `-r requirements.txt` y agrega `pytest 9.2.0` con las suyas. Sin `requests` (la descarga usa `urllib.request`).
+- **Motivo**: RNF01 pide reproducibilidad; sin las transitivas fijadas, una versión nueva de una librería secundaria puede cambiar el resultado. Se tomó la resolución más reciente que cae dentro de los rangos de D17; si una versión falla en U05-U09, se retrocede dentro del rango y se anota aquí.
+- **Afecta**: `requirements.txt`; `requirements-dev.txt`; `airflow/requirements-airflow.txt` (U12 debe revisar la compatibilidad con la imagen de Airflow).
+- **Quién**: agente de programación (Sonnet), U01. **Estado**: vigente.
+
+## D22 Configuración: herencia con `extends`, claves estrictas y paquete sin instalar (U01)
+
+- **Contexto**: el plan dice que `pipeline.quick.toml` "sobrescribe" valores de `pipeline.toml` y que `load_config(path, overrides)` recibe dos archivos, pero no dice cómo se usa el archivo rápido con `--config`. Tampoco dice cómo se importa el paquete en las pruebas.
+- **Opciones**: (a) el archivo rápido es completo y repite todo; (b) el archivo rápido trae solo las diferencias y siempre se combina con el completo; (c) el archivo rápido trae solo las diferencias y declara de cuál parte con `extends = "pipeline.toml"`. Para el paquete: instalar en modo editable o agregar `src` al `pythonpath` de pytest.
+- **Decisión**: (c). Un archivo puede abrir con `extends` (ruta relativa al propio archivo; cadenas y bucles se detectan); `overrides` se combina clave por clave sobre el resultado. Una sección o clave desconocida, una clave faltante, un tipo equivocado, un par de límites desordenado o `OILGAS_N_WORKERS` que no sea un entero positivo son `ValueError` con el nombre de la clave. `source.mode` solo admite `http` o `local`. El paquete se importa con `pythonpath = ["src", "."]` en `pyproject.toml`; no se instala.
+- **Motivo**: (c) hace que `--config config/pipeline.quick.toml` funcione solo y que el archivo rápido muestre exactamente qué cambia. Rechazar claves desconocidas evita que un error de tipeo en una sobrescritura se ignore en silencio. Sin instalación editable no hay nada que reinstalar al cambiar de rama; U12 la agrega si hace falta para `python -m oilgas`.
+- **Afecta**: `config.py`; `config/pipeline.quick.toml`; `pyproject.toml`; todas las pruebas que cargan configuración.
+- **Quién**: agente de programación (Sonnet), U01. **Estado**: vigente.
+
+## D23 Lectura del CSV y accesorios de prueba (U01)
+
+- **Contexto**: el plan pide un generador de accesorios y una muestra real de los 5 pozos "con más meses de historia entre los shale de petróleo elegibles". No dice cómo se resuelve cada caso de datos malos en el generador ni qué significa "elegibles" para la muestra.
+- **Opciones**: muestra (a) los 5 pozos shale con más meses de petróleo positivo, o (b) los 5 con más filas; accesorio válido con o sin pozos fuera del alcance.
+- **Decisión**: la muestra son los 5 pozos shale de Neuquina con más meses de petróleo positivo que producen en alguno de los últimos tres meses (2026-07 a 2026-09): `3640`, `126808`, `135480`, `136060`, `136203` (1 130 filas, 379 KB, con su atribución). El accesorio válido trae 60 pozos del alcance más 3 fuera de él (otra cuenca, otro tipo de recurso) para que el filtro se pruebe, y registra en `FixtureTruth` dónde está cada caso: un gas negativo, un `tef` mayor que los días del mes, dos `tef = 0` con producción, un pozo con coordenadas intercambiadas, dos profundidades inválidas, dos cambios de operadora, meses en cero, meses sin fila, pozos jóvenes y pozos que dejan de informar. El accesorio no contiene filas con tope de volumen (V15 da 0, como en la publicación real); su prueba modifica un marco de datos en memoria. `read_source_csv` lee todo como texto (los vacíos son nulos), con `utf-8-sig`.
+- **Motivo**: (a) coincide con la definición de serie elegible de D07 (positivos suficientes y actividad reciente); (b) incluiría pozos con muchos ceros. Con ceros, huecos y casos de calidad en posiciones conocidas, las pruebas de U03 y U04 verifican recuentos exactos en lugar de «alguno». Leer como texto permite que la validación cuente lo que no convierte (V03, V07). Medido: la publicación completa se lee en unos 1,4 s.
+- **Afecta**: `schema.py`; `tests/fixtures/*`; pruebas de U03 (recuentos de V12-V16) y U04 (coherencia validación-SQL).
+- **Quién**: agente de programación (Sonnet), U01. **Estado**: vigente.
