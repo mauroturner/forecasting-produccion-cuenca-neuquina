@@ -47,6 +47,8 @@ El ajuste es por mínimos cuadrados en escala logarítmica de la tasa (`scipy.op
 
 **Sin fuga de información.** Una prueba perturba todos los datos posteriores a un origen y exige que ningún pronóstico de ningún método cambie en ese origen; otra comprueba que ningún ejemplo de entrenamiento ni error de calibración tiene un objetivo posterior al origen.
 
+Esa afirmación tuvo una excepción que la evaluación independiente encontró y que ya se corrigió (B1, D39). El ajuste de Arps en un origen arranca de la solución del origen anterior (arranque en caliente), y un origen sin ningún mes objetivo con fila no se ajustaba; entonces que un origen se ajustara o no dependía de filas posteriores a un origen más tardío, y con ello el conjunto de puntos de partida del ajuste siguiente. Con dos paneles idénticos hasta el mes 41 y distintos solo después, `arps_mh_b2` daba en el origen 41, a 12 meses, un P50 de 2138,049860 en uno y 2138,047154 en el otro: una diferencia relativa de 1,3e-6, sin efecto visible en las métricas, pero que rompe la igualdad exacta que pide AC11. La corrección ajusta cada variante de Arps elegible en cada origen, tenga o no un mes objetivo con fila, de modo que la cadena de arranques depende solo de datos hasta cada origen. Una prueba nueva borra las filas posteriores a un origen que sigue a un mes sin fila y exige que todos los pronósticos en ese origen sean exactamente iguales. Los resultados de abajo son de la corrida hecha con el código corregido.
+
 **Métricas.** WAPE = Σ|real − pronóstico| / Σ real (el error relativo del total; el MAPE no sirve con meses en cero). También MAE, RMSE, sesgo, cobertura de la banda P10-P90 (proporción de valores reales dentro de la banda), pérdida pinball escalada (la suma de las pérdidas de los tres cuantiles dividida por el total real) y la proporción de pozos en los que el método tiene un MAE menor que el de la línea base.
 
 **Criterios fijados de antemano** (`[criteria]` de `config/pipeline.toml`; no se movieron después de ver los resultados):
@@ -198,18 +200,18 @@ Medido en esta máquina (AMD Ryzen 9 5950X de 16 núcleos y 64 GB, Windows 10) c
 
 | Tarea | Tiempo |
 | --- | ---: |
-| `check_publication` | 0,1 s |
+| `check_publication` | 0,2 s |
 | `download` (adopción del archivo ya descargado) | 0,1 s |
 | `validate` | 5,3 s |
-| `load` | 19,1 s |
-| `backtest` | 1.435,5 s (23,9 min) |
-| `forecast` | 382,6 s (6,4 min) |
-| `export` | 10,8 s |
+| `load` | 18,7 s |
+| `backtest` | 1.376,5 s (22,9 min): panel 1,9 s, métodos puntuales 919,2 s, bandas 24,0 s, machine learning 414,8 s |
+| `forecast` | 374,3 s (6,2 min): ajustes 186,6 s, machine learning 180,6 s |
+| `export` | 10,6 s |
 | `render_dashboard` | 0,4 s |
-| `report` | 0,1 s |
-| **Total** | **1.854 s (30,9 min)** |
+| `report` | 0,5 s |
+| **Total** | **1.786,7 s (29,8 min)** |
 
-Contra RNF02: backtest completo 23,9 min (tope 45 min) y flujo completo 30,9 min (tope 90 min). No incluye la descarga real de 149 MB, que depende de la red. El pico de memoria (RNF03, tope 4 GB) no se midió. Los topes del modo rápido (5 min) y de las pruebas (3 min) se verifican en las pruebas del proyecto.
+Esta es la segunda corrida completa, hecha con el código corregido tras la evaluación independiente (la primera, con la versión anterior, tardó 1.854 s: backtest 1.435,5 s y pronóstico 382,6 s, sin desglose del backtest). Contra RNF02: backtest completo 22,9 min (tope 45 min) y flujo completo 29,8 min (tope 90 min). No incluye la descarga real de 149 MB, que depende de la red. El pico de memoria (RNF03, tope 4 GB) **no se midió**. El tope del modo rápido (5 min) se verifica en las pruebas del proyecto. El de las pruebas, en cambio, **no se cumple por unos segundos**: la suite rápida (`-m "not real_data and not docker"`) tarda unos 185 s en esta máquina (entre 188 y 210 s en las cuatro mediciones de la corrección, con las pruebas nuevas) contra los 180 s de RNF02. La evaluación independiente lo señaló; no se persiguió el tiempo ni se buscó una causa, porque la regla de esta corrección era no hacerlo salvo que el arreglo fuera trivial y no se identificó ninguno.
 
 ## Limitaciones
 

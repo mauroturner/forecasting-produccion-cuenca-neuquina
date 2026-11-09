@@ -13,9 +13,9 @@ El dueño del portafolio pidió, con sus palabras, desarrollar «de a un proyect
 | Programación | Agente con Sonnet, en lotes de unidades, pruebas primero | Las unidades U01-U15 y el endurecimiento H1 |
 | Revisión por unidad | Revisión nativa de Gentle AI | Un bloqueante en U04, cuatro en U12 (en dos rondas) y advertencias en U02, U03, U04 y U12 |
 | Orquestación | La sesión principal de Claude Code | El documento de seguimiento, los lotes y los controles de cada commit |
-| Evaluación final independiente | Agente con Opus | **Pendiente**: todavía no se hizo |
+| Evaluación final independiente | Agente independiente con Opus, de solo lectura | **Hecha** (sección 8 y `docs/evaluation.md`): tres bloqueantes y once advertencias, corregidos con la prueba primero. Falta que vuelva a comprobar los tres bloqueantes |
 
-Reglas que se mantuvieron en todas las unidades: primero la prueba (se observa que falla, luego se escribe el código), una comprobación de mutación por unidad (romper a propósito una línea de la lógica y ver qué prueba lo detecta), la suite completa en verde antes de cada commit y un commit por unidad con mensaje convencional.
+Reglas que se mantuvieron en las unidades, tal como consta en el registro: primero la prueba (se observa que falla, luego se escribe el código), la suite completa en verde antes de cada commit y un commit por unidad con mensaje convencional. La comprobación de mutación (romper a propósito una línea de la lógica y ver qué prueba lo detecta) se anotó unidad por unidad de U05 a U15 y en H1; U01 a U04 se hicieron con la prueba primero y el rojo observado por módulo, y solo U04 tiene anotada una comprobación de mutación (sobre el SQL).
 
 ## 1. Investigación (Haiku, 14:43)
 
@@ -30,7 +30,7 @@ Un agente con Opus descargó el CSV completo, lo perfiló con scripts de Python 
 - El servidor tampoco responde a pedidos condicionales: el cambio de publicación se detecta comparando las cabeceras de un `HEAD` con un manifiesto (D13).
 - El Python global de la máquina estaba roto (pyarrow pedía NumPy 2 y había NumPy 1.26): el proyecto exige su propio entorno virtual (D17).
 
-Comparó tres enfoques (solo curvas, solo machine learning, los dos comparados; D01) y fijó los umbrales de aceptación **antes** de construir nada (D10): la curva de Arps debe superar a repetir el último mes en al menos el 60 % de los pozos a 12 meses, y las bandas P10-P90 deben cubrir entre el 70 % y el 90 % de los valores reales. Consultó la documentación de Airflow por el servidor MCP Context7. El plan quedó dividido en 15 unidades.
+Comparó tres enfoques (solo curvas, solo machine learning, los dos comparados; D01) y fijó los umbrales de aceptación **antes** de construir nada (D10): la curva de Arps debe superar a repetir el último mes en al menos el 60 % de los pozos a 12 meses, y las bandas P10-P90 deben cubrir entre el 70 % y el 90 % de los valores reales. El plan quedó dividido en 15 unidades. (Una versión anterior de este documento decía que consultó la documentación de Airflow por un servidor MCP, Context7; el registro de seguimiento no lo respalda y se quitó, D43.)
 
 ## 3. La programación, unidad por unidad (Sonnet)
 
@@ -80,7 +80,7 @@ Power BI Desktop necesita una persona frente a la interfaz y una licencia para p
 
 ### U12, orquestación (17:44)
 
-La tupla `TASKS` que recorren por igual la CLI (`python -m oilgas run`) y el DAG de Airflow, con el estado de cada corrida en un archivo y el rechazo sin daño comprobado por el hash del archivo SQLite y de cada Parquet (D35). El DAG se verificó de forma estática; `airflow dags test` en Docker quedó pendiente porque Docker Desktop estaba apagado.
+La tupla `TASKS` que recorren por igual la CLI (`python -m oilgas run`) y el DAG de Airflow, con el estado de cada corrida en un archivo y el rechazo sin daño comprobado por el hash del archivo SQLite y de cada Parquet (D35). El DAG está pensado para correr todos los días, pero **no se corrió en Docker**: se verificó de forma estática y con `docker compose config`, y `airflow dags test` quedó pendiente porque Docker Desktop estaba apagado.
 
 ## 4. La revisión nativa de Gentle AI
 
@@ -115,13 +115,30 @@ Se actualizaron además `LANDING-EXPANSION.md` (SciPy, NumPy, SQLite, Parquet co
 
 ## 7. La ablación con fractura (U15, Sonnet)
 
-La pregunta que dejó abierta D15: ¿sirve sumar el archivo preliminar de fractura? Primero se escribió la regla de decisión (mejorar al menos 2 % en 12 de 16 celdas y no empeorar más de 2 % en ninguna) y recién después se corrió. El código agrega, detrás de una opción apagada, cinco variables de fractura que en cada mes solo conocen las fracturas ya terminadas (una prueba verifica que perturbar las posteriores no cambia nada), y un comando compara el machine learning con y sin ellas sobre los mismos pares.
+La pregunta que dejó abierta D15: ¿sirve sumar el archivo preliminar de fractura? Primero se escribió la regla de decisión (mejorar al menos 2 % en 12 de 16 celdas y no empeorar más de 2 % en ninguna) y recién después se corrió; así consta en el registro, pero la regla se confirmó en Git junto con sus resultados, de modo que desde el historial no se puede comprobar que existiera antes. El código agrega, detrás de una opción apagada, cinco variables de fractura que en cada mes solo conocen las fracturas ya terminadas (una prueba verifica que perturbar las posteriores no cambia nada), y un comando compara el machine learning con y sin ellas sobre los mismos pares.
 
 Se corrió completo, no sobre una muestra: 4.937 pozos, 24 orígenes, 506.386 pares por modelo, 861 segundos. El modelo «sin» reprodujo el de la corrida real hasta el sexto decimal, así que la comparación es limpia. Salió que **no ayuda**: 0 de 16 celdas mejoran, el cambio medio es +0,7 % y en la mitad de los pozos mejora y en la otra mitad no. Las variables de fractura quedan fuera del modelo base (D38).
 
+## 8. La evaluación final independiente y las correcciones
+
+Un agente independiente con Opus, que no construyó el proyecto, lo evaluó en modo de solo lectura, con sondas en una copia de trabajo aparte, y recalculó las cifras principales desde los resultados. El informe completo está en [evaluation.md](evaluation.md); acá, lo que pasó con cada cosa.
+
+**Veredicto.** Las especificaciones S1 a S4, S7 y S8 se cumplen, S5 y S9 en parte, y S6 no aplica. De los criterios de aceptación, AC01 a AC10, AC12 a AC18 y AC20 a AC23 se cumplen (AC08 solo con historias de 36 meses, como ya constaba), AC11 **no se cumplía** antes de la corrección y AC19 quedó **sin probar**, porque el DAG nunca corrió en Docker. Las cifras que recalculó coincidieron con las publicadas.
+
+**Tres bloqueantes, corregidos con la prueba primero** (una prueba que falla, la corrección, y una mutación que la prueba detecta):
+
+- **B1, datos posteriores a un origen cambiaban un pronóstico de Arps anterior** (`6f3adec`). El arranque en caliente del ajuste de Arps y un origen sin mes objetivo que no se ajustaba hacían depender un pronóstico de filas posteriores a otro origen: dos paneles idénticos hasta el mes 41 daban 2138,049860 y 2138,047154. Ahora cada variante elegible se ajusta en cada origen. Se midió la alternativa de quitar el arranque en caliente: +54 % sobre las etapas de Arps, alrededor del 36 % del backtest, por encima del 30 % fijado como límite; no se hizo (D39).
+- **B2, `--adopt` ignorado con una configuración local** (`dcf7ba1`): ahora sale con código 2 y un mensaje (D40).
+- **B3, el modo rápido escribía sobre lo versionado** (`df4b771`): tiene su carpeta `data/quick/` ignorada por Git; el comando del README funciona desde un clon limpio (D40).
+
+**Las advertencias** (`109a1de`, `6d45148`): el compose de Airflow publica la interfaz solo en `127.0.0.1`, exige las tres claves, monta el código en solo lectura y la imagen instala los mismos `==` que la CLI (D41); las tareas que fallan dejan su traza, el backtest interrumpido cancela lo que está en cola, las corridas sin cambios o atrasadas se ven en la tabla exportada y el HTML se renderiza de nuevo si algo falla después (D42); la documentación se corrigió para decir solo lo que consta, y `SITE-UPDATES.md` y `LANDING-EXPANSION.md` suman lo que faltaba (D43). Dos cosas no se cambiaron y están dichas: que el backtest ajuste con arranque en caliente y la proyección de producción en frío (A10), y la suite rápida de unos 185 s contra los 180 s pedidos, con la memoria sin medir (A11).
+
+**La corrida repetida** (`a48f5a8`): se volvió a correr el flujo completo sobre la misma publicación, sin descargar de nuevo, con el código corregido: 29,8 minutos (backtest 22,9). **No cambió ninguna cifra**: las 72 celdas del resumen son idénticas a las de la primera corrida y las tablas Parquet solo difieren en la clave de la corrida. La corrección de B1 garantiza una propiedad; en los datos reales no movió ningún número.
+
 ## Lo que falta
 
-- **Evaluación final independiente con Opus** de la lógica de todo el proyecto: todavía no se hizo. Es el control que cubre, entre otras cosas, la unidad U01, que la revisión nativa no pudo tomar.
+- **Que el evaluador vuelva a comprobar los tres bloqueantes corregidos.** La evaluación está hecha; la nueva comprobación, no.
+- **`airflow dags test` en Docker**, que no se pudo ejecutar porque Docker Desktop estaba apagado. El DAG está pensado para correr todos los días, pero no se corrió; lo mismo vale para el compose endurecido y la imagen con los `==` de `requirements.txt`, que no se construyeron.
 - **El `.pbix`.** El diseño en HTML dice cómo armarlo; armarlo en Power BI Desktop es manual.
-- **`airflow dags test` en Docker**, que no se pudo ejecutar porque Docker Desktop estaba apagado.
-- **El texto del sitio** (alcance, «1 CSV por año», y los pasos de «Con IA, de punta a punta»), que decide el dueño: `SITE-UPDATES.md`.
+- **La memoria máxima (RNF03)**, que no se midió.
+- **El texto del sitio** (alcance, «1 CSV por año», el modelo en uso, la promesa de un tablero que se arma solo y los pasos de «Con IA, de punta a punta»), que decide el dueño: `SITE-UPDATES.md`.
