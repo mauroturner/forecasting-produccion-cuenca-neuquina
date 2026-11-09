@@ -21,7 +21,7 @@ from oilgas.ablation import run_ablation
 from oilgas.dashboard.semantic_model import MODEL
 from oilgas.docs import COLUMNS_END, COLUMNS_START, METHODS_END, METHODS_START, render_dictionary_tables, render_method_tables
 from oilgas.figures import make_figures
-from oilgas.pipeline import TASK_IDS, TASKS, make_run_key, run_all, run_task
+from oilgas.pipeline import TASK_IDS, TASKS, UsageError, make_run_key, run_all, run_task
 from oilgas.reporting import sync_block
 from oilgas.validate import ValidationError
 from oilgas.warehouse import connect
@@ -38,7 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     run = commands.add_parser("run", help="run the tasks in order: " + ", ".join(TASK_IDS))
     run.add_argument("--config", type=Path, help="configuration file (default: $OILGAS_CONFIG or config/pipeline.toml)")
-    run.add_argument("--adopt", type=Path, metavar="CSV", help="use this already downloaded file instead of downloading it")
+    run.add_argument("--adopt", type=Path, metavar="CSV", help="use this already downloaded file instead of downloading it (not with source.mode = local, which names its own file)")
     run.add_argument("--only", nargs="+", choices=TASK_IDS, metavar="TASK", help="run only these tasks")
     run.add_argument("--from", dest="start", choices=TASK_IDS, metavar="TASK", help="start at this task")
     run.add_argument("--run-key", help="continue the run with this key (needed with --from or --only after the first task)")
@@ -171,7 +171,7 @@ def main(argv: list[str] | None = None) -> int:
     except ValidationError as error:
         _fail(f"rejected: {error}")
         return EXIT_REJECTED
-    except FileNotFoundError as error:
+    except (FileNotFoundError, UsageError) as error:
         _fail(f"error: {error}")
         return EXIT_USAGE
     except Exception as error:  # a task failed: its record is in the run state

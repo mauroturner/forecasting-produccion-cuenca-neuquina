@@ -69,6 +69,10 @@ class ExportError(RuntimeError):
     """The exported files do not keep the contract of the star schema."""
 
 
+class UsageError(ValueError):
+    """The run was asked for something that cannot be done as asked (the CLI exits with 2)."""
+
+
 @dataclass(frozen=True)
 class RunContext:
     cfg: PipelineConfig
@@ -443,6 +447,12 @@ def run_all(
     Returns one ``{"task", "result"}`` per task that ran; `on_task` is called with each one as it ends, so a
     caller can show progress even if a later task fails. ``ValidationError`` is not caught: the run was rejected.
     """
+    if adopt is not None and cfg.source.mode == "local":
+        # A local configuration names its own file; an adopted one would be recorded and then ignored (B2).
+        raise UsageError(
+            f"--adopt cannot be combined with [source] mode = \"local\": the configuration already names its file "
+            f"(local_path = {cfg.source.local_path!r}); drop --adopt, or use mode = \"http\" to adopt {adopt}"
+        )
     ids = list(TASK_IDS)
     if start is not None:
         _spec(start)

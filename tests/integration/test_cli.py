@@ -61,6 +61,15 @@ def test_a_missing_configuration_or_file_exits_with_two(tmp_path: Path, capsys) 
     assert main(["run", "--config", str(bad)]) == EXIT_USAGE
 
 
+def test_adopt_with_a_local_configuration_is_a_usage_error_and_runs_nothing(tmp_path: Path, fixture_csv: Path, malformed, capsys) -> None:
+    """B2: the adopted file used to be recorded and then ignored, and the run ended in success on the configured file."""
+    config = write_config(tmp_path, fixture_csv)
+    assert main(["run", "--config", str(config), "--adopt", str(malformed("month_13"))]) == EXIT_USAGE
+    captured = capsys.readouterr()
+    assert "--adopt" in captured.err and "local" in captured.err and captured.out == ""
+    assert not (tmp_path / "data").exists()  # no state file, no manifest, no warehouse
+
+
 def test_a_task_that_fails_exits_with_one_and_says_which_error(copy_of_run, monkeypatch, capsys) -> None:
     _, config = copy_of_run
 
