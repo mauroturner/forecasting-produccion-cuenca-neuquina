@@ -98,9 +98,24 @@ Tiempos de la corrida repetida (Ryzen 9 5950X de 16 núcleos y 64 GB, 4 procesos
 La primera corrida había tardado 30,9 minutos (backtest 23,9); la diferencia está dentro de lo que varía entre dos corridas en la misma máquina. Esta vez quedó registrado el desglose del backtest, que la primera no conservó (D36): los métodos puntuales son el 67 % de su tiempo.
 
 
+## La nueva comprobación de los bloqueantes
+
+Un segundo agente independiente con Opus, que tampoco construyó el proyecto, volvió a comprobar solo los tres bloqueantes, en copias aparte de cada commit y sin escribir en el repositorio. Cada sonda reprodujo el defecto en `6b80d2a`, antes de las correcciones, y pasó en `c8ab06f`:
+
+| Bloqueante | Antes (`6b80d2a`) | Después (`c8ab06f`) |
+| --- | --- | --- |
+| B1, filas posteriores a un origen que cambiaban su proyección | La P50 de `arps_mh_b2` en el origen 41 a 12 meses difería en 1,27e-6. Una sonda más amplia (30 pozos al azar con huecos, ceros y reestimulaciones; filas posteriores al corte borradas, reescaladas o agregadas) encontró 28 filas distintas, con una diferencia relativa de hasta 7,7e-5 | Iguales en las tres variantes de Arps; en la sonda amplia, 0 de unas 230.000 filas comparadas |
+| B2, `--adopt` ignorado en modo local | Código de salida 0, las nueve tareas corrieron y se registró el archivo adoptado | Código de salida 2 con un mensaje que dice qué hacer, y ningún archivo cambiado |
+| B3, el modo rápido escribía sobre las salidas versionadas | Con los comandos del README, error de permisos; con la configuración que documentaba, reescribía los 15 Parquet, el HTML del tablero y los informes | Con los comandos del README tal cual, la corrida termina bien y los 30 archivos nuevos quedan en `data/quick/`; nada cambia fuera de esa carpeta, ni en una segunda corrida |
+
+También comprobó que las correcciones no cambiaron salidas que nadie pidió cambiar: las 15 tablas reales coinciden en contenido salvo las columnas de cada corrida, `reports/backtest_summary.json` es idéntico byte a byte, `--adopt` con la configuración por defecto sigue adoptando y la ayuda de la CLI solo cambió en el texto de `--adopt`. La fuga de B1 se verificó para los métodos puntuales; el camino del machine learning quedó fuera de esta comprobación.
+
+## La revisión de Gentle AI del compose
+
+El commit `109a1de` cambia el compose y la imagen de Airflow, así que se revisó solo, en una copia aparte, con dos lentes (riesgo y resiliencia). Quedó aprobado, sin correcciones, con cinco observaciones que no bloquean y quedan para después: la descarga sigue siendo por HTTP sin un hash de confianza (ya dicho en el README); las claves podrían pasar a secretos de Docker; los `==` de la imagen pueden chocar con las restricciones de Airflow 3.4 al construirla (D41); la tabla de corridas usa un hash de respaldo si falta el del manifiesto; y la traza que se guarda en el estado no tiene tope de tamaño.
+
 ## Lo que queda
 
-- El evaluador todavía tiene que volver a comprobar los tres bloqueantes corregidos.
 - AC19 sigue sin probarse: falta correr `airflow dags test` en Docker, y con ello probar el compose endurecido y la imagen con los `==` (D41).
 - El pico de memoria (RNF03) no se midió y la suite rápida supera por unos segundos los 180 s de RNF02 (A11).
 - El `.pbix` sigue sin armarse: el diseño en HTML dice cómo.

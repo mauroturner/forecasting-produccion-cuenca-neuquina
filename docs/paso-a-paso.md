@@ -13,7 +13,7 @@ El dueño del portafolio pidió, con sus palabras, desarrollar «de a un proyect
 | Programación | Agente con Sonnet, en lotes de unidades, pruebas primero | Las unidades U01-U15 y el endurecimiento H1 |
 | Revisión por unidad | Revisión nativa de Gentle AI | Un bloqueante en U04, cuatro en U12 (en dos rondas) y advertencias en U02, U03, U04 y U12 |
 | Orquestación | La sesión principal de Claude Code | El documento de seguimiento, los lotes y los controles de cada commit |
-| Evaluación final independiente | Agente independiente con Opus, de solo lectura | **Hecha** (sección 8 y `docs/evaluation.md`): tres bloqueantes y once advertencias, corregidos con la prueba primero. Falta que vuelva a comprobar los tres bloqueantes |
+| Evaluación final independiente | Agente independiente con Opus, de solo lectura | **Hecha** (sección 8 y `docs/evaluation.md`): tres bloqueantes y once advertencias, corregidos con la prueba primero. Una nueva comprobación independiente los dio por corregidos |
 
 Reglas que se mantuvieron en las unidades, tal como consta en el registro: primero la prueba (se observa que falla, luego se escribe el código), la suite completa en verde antes de cada commit y un commit por unidad con mensaje convencional. La comprobación de mutación (romper a propósito una línea de la lógica y ver qué prueba lo detecta) se anotó unidad por unidad de U05 a U15 y en H1; U01 a U04 se hicieron con la prueba primero y el rojo observado por módulo, y solo U04 tiene anotada una comprobación de mutación (sobre el SQL).
 
@@ -135,9 +135,10 @@ Un agente independiente con Opus, que no construyó el proyecto, lo evaluó en m
 
 **La corrida repetida** (`a48f5a8`): se volvió a correr el flujo completo sobre la misma publicación, sin descargar de nuevo, con el código corregido: 29,8 minutos (backtest 22,9). **No cambió ninguna cifra**: las 72 celdas del resumen son idénticas a las de la primera corrida y las tablas Parquet solo difieren en la clave de la corrida. La corrección de B1 garantiza una propiedad; en los datos reales no movió ningún número.
 
+**La nueva comprobación** (sin commits, de solo lectura): un segundo agente independiente con Opus volvió a correr las sondas de los tres bloqueantes. Las tres fallaban antes de corregirlos y pasan ahora; tampoco cambió ninguna salida que nadie pidió cambiar. Y Gentle AI revisó solo el commit del compose (`109a1de`), con las lentes de riesgo y resiliencia: aprobado, con cinco observaciones que no bloquean (`docs/evaluation.md`).
+
 ## Lo que falta
 
-- **Que el evaluador vuelva a comprobar los tres bloqueantes corregidos.** La evaluación está hecha; la nueva comprobación, no.
 - **`airflow dags test` en Docker**, que no se pudo ejecutar porque Docker Desktop estaba apagado. El DAG está pensado para correr todos los días, pero no se corrió; lo mismo vale para el compose endurecido y la imagen con los `==` de `requirements.txt`, que no se construyeron.
 - **El `.pbix`.** El diseño en HTML dice cómo armarlo; armarlo en Power BI Desktop es manual.
 - **La memoria máxima (RNF03)**, que no se midió.

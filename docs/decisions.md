@@ -472,4 +472,4 @@ Estados: **vigente**, **pendiente del dueño**, **reemplazada por Dxx**.
   - **Lo que no se cambió**: A10 (D39), la contraseña de PostgreSQL y el resto de D41, el HTML en corridas sin cambios (D42), el texto de RNF11 en `requirements.md`, y la exportación de `dim_pipeline_run` en cada corrida diaria sin cambios (cada corrida suma una fila a la tabla: es el efecto buscado, pero crece con los días).
 - **Motivo**: que la documentación no diga más que lo que se hizo, y que lo que se decidió no tocar tenga su motivo escrito.
 - **Afecta**: README; `docs/paso-a-paso.md`; `docs/model-card.md`; `docs/evaluation.md`; `docs/plan.md`; `SITE-UPDATES.md`; `LANDING-EXPANSION.md`.
-- **Quién**: agente de programación (Sonnet), por indicación de quien orquesta. **Estado**: vigente; queda la nueva comprobación de los bloqueantes por el evaluador.
+- **Quién**: agente de programación (Sonnet), por indicación de quien orquesta. **Estado**: vigente; una nueva comprobación independiente dio los tres bloqueantes por corregidos (`docs/evaluation.md`).
