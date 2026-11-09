@@ -1,0 +1,374 @@
+{
+  "run_key": "20261109T204611Z",
+  "source_sha256": "61cecc31c8dd81fd474c4094f2605b2b01b5a5d157e2089db7f3c548c410deae",
+  "rows_file": 431322,
+  "rows_subset": 413865,
+  "wells_subset": 4937,
+  "first_period_key": 200601,
+  "last_period_key": 202609,
+  "blocking_failed": false,
+  "not_evaluated": [],
+  "results": [
+    {
+      "rule_id": "V01",
+      "name_es": "El archivo se lee como CSV en UTF-8",
+      "severity": "bloqueante",
+      "status": "pasa",
+      "rows_affected": 0,
+      "wells_affected": 0,
+      "examples": []
+    },
+    {
+      "rule_id": "V02",
+      "name_es": "Están todas las columnas que usa el proyecto",
+      "severity": "bloqueante",
+      "status": "pasa",
+      "rows_affected": 0,
+      "wells_affected": 0,
+      "examples": []
+    },
+    {
+      "rule_id": "V03",
+      "name_es": "idpozo, anio y mes son enteros y no nulos",
+      "severity": "bloqueante",
+      "status": "pasa",
+      "rows_affected": 0,
+      "wells_affected": 0,
+      "examples": []
+    },
+    {
+      "rule_id": "V04",
+      "name_es": "El mes está entre 1 y 12 y el período está dentro del alcance y no es futuro",
+      "severity": "bloqueante",
+      "status": "pasa",
+      "rows_affected": 0,
+      "wells_affected": 0,
+      "examples": []
+    },
+    {
+      "rule_id": "V05",
+      "name_es": "fecha_data es el último día del mes de la fila",
+      "severity": "bloqueante",
+      "status": "pasa",
+      "rows_affected": 0,
+      "wells_affected": 0,
+      "examples": []
+    },
+    {
+      "rule_id": "V06",
+      "name_es": "La clave (idpozo, anio, mes) es única",
+      "severity": "bloqueante",
+      "status": "pasa",
+      "rows_affected": 0,
+      "wells_affected": 0,
+      "examples": []
+    },
+    {
+      "rule_id": "V07",
+      "name_es": "Los volúmenes no convertibles o nulos no superan el umbral",
+      "severity": "bloqueante",
+      "status": "pasa",
+      "rows_affected": 0,
+      "wells_affected": 0,
+      "examples": []
+    },
+    {
+      "rule_id": "V08",
+      "name_es": "El subconjunto (cuenca y tipo de recurso) no está vacío",
+      "severity": "bloqueante",
+      "status": "pasa",
+      "rows_affected": 0,
+      "wells_affected": 0,
+      "examples": []
+    },
+    {
+      "rule_id": "V09",
+      "name_es": "El subconjunto no se achica respecto de la carga previa",
+      "severity": "bloqueante",
+      "status": "pasa",
+      "rows_affected": 0,
+      "wells_affected": 0,
+      "examples": []
+    },
+    {
+      "rule_id": "V10",
+      "name_es": "El último período no es anterior al de la carga previa",
+      "severity": "bloqueante",
+      "status": "pasa",
+      "rows_affected": 0,
+      "wells_affected": 0,
+      "examples": []
+    },
+    {
+      "rule_id": "V11",
+      "name_es": "El último período trae filas comparables con las del anterior",
+      "severity": "advertencia",
+      "status": "pasa",
+      "rows_affected": 0,
+      "wells_affected": 0,
+      "examples": []
+    },
+    {
+      "rule_id": "V12",
+      "name_es": "Volumen negativo (se corrige a nulo)",
+      "severity": "advertencia",
+      "status": "advierte",
+      "rows_affected": 2,
+      "wells_affected": 2,
+      "examples": [
+        {
+          "well_id": 153228,
+          "period_key": 202005,
+          "value": -12.267
+        },
+        {
+          "well_id": 153227,
+          "period_key": 202005,
+          "value": -7.519
+        }
+      ]
+    },
+    {
+      "rule_id": "V13",
+      "name_es": "Días efectivos mayores que los días del mes (se corrigen a nulo)",
+      "severity": "advertencia",
+      "status": "advierte",
+      "rows_affected": 70,
+      "wells_affected": 58,
+      "examples": [
+        {
+          "well_id": 154790,
+          "period_key": 201905,
+          "value": 79.34
+        },
+        {
+          "well_id": 161532,
+          "period_key": 202106,
+          "value": 36.67
+        },
+        {
+          "well_id": 161531,
+          "period_key": 202106,
+          "value": 36.67
+        },
+        {
+          "well_id": 161427,
+          "period_key": 202506,
+          "value": 31.583
+        },
+        {
+          "well_id": 160933,
+          "period_key": 202506,
+          "value": 30.379
+        }
+      ]
+    },
+    {
+      "rule_id": "V14",
+      "name_es": "Días efectivos en cero con producción (se conserva y se marca)",
+      "severity": "advertencia",
+      "status": "advierte",
+      "rows_affected": 384,
+      "wells_affected": 131,
+      "examples": [
+        {
+          "well_id": 153918,
+          "period_key": 201503,
+          "value": 0.0
+        },
+        {
+          "well_id": 156504,
+          "period_key": 201603,
+          "value": 0.0
+        },
+        {
+          "well_id": 156389,
+          "period_key": 201603,
+          "value": 0.0
+        },
+        {
+          "well_id": 156503,
+          "period_key": 201603,
+          "value": 0.0
+        },
+        {
+          "well_id": 156607,
+          "period_key": 201605,
+          "value": 0.0
+        }
+      ]
+    },
+    {
+      "rule_id": "V15",
+      "name_es": "Volumen mensual por encima del tope plausible (se conserva y se marca)",
+      "severity": "advertencia",
+      "status": "pasa",
+      "rows_affected": 0,
+      "wells_affected": 0,
+      "examples": []
+    },
+    {
+      "rule_id": "V16",
+      "name_es": "Coordenadas intercambiadas o fuera de la cuenca",
+      "severity": "advertencia",
+      "status": "advierte",
+      "rows_affected": 70,
+      "wells_affected": 1,
+      "examples": [
+        {
+          "well_id": 162058,
+          "lon": -38.59007,
+          "lat": -69.41577,
+          "reason": "swapped"
+        }
+      ]
+    },
+    {
+      "rule_id": "V17",
+      "name_es": "Profundidad fuera de rango (se corrige a nulo)",
+      "severity": "advertencia",
+      "status": "advierte",
+      "rows_affected": 6235,
+      "wells_affected": 176,
+      "examples": [
+        {
+          "well_id": 162407,
+          "value": 0.0
+        },
+        {
+          "well_id": 162410,
+          "value": 0.0
+        },
+        {
+          "well_id": 162486,
+          "value": 0.0
+        },
+        {
+          "well_id": 162568,
+          "value": 0.0
+        },
+        {
+          "well_id": 162574,
+          "value": 0.0
+        }
+      ]
+    },
+    {
+      "rule_id": "V18",
+      "name_es": "Atributo fijo con más de un valor en un mismo pozo",
+      "severity": "advertencia",
+      "status": "pasa",
+      "rows_affected": 0,
+      "wells_affected": 0,
+      "examples": []
+    },
+    {
+      "rule_id": "V19",
+      "name_es": "Columnas que no están en el contrato",
+      "severity": "advertencia",
+      "status": "pasa",
+      "rows_affected": 0,
+      "wells_affected": 0,
+      "examples": []
+    },
+    {
+      "rule_id": "V20",
+      "name_es": "Total de un período antiguo revisado más allá de la tolerancia",
+      "severity": "advertencia",
+      "status": "pasa",
+      "rows_affected": 0,
+      "wells_affected": 0,
+      "examples": []
+    },
+    {
+      "rule_id": "I01",
+      "name_es": "Meses sin producción con estado de extracción efectiva",
+      "severity": "informativa",
+      "status": "pasa",
+      "rows_affected": 15870,
+      "wells_affected": 886,
+      "examples": [
+        {
+          "well_id": 131718,
+          "period_key": 201501
+        },
+        {
+          "well_id": 130517,
+          "period_key": 201601
+        },
+        {
+          "well_id": 137075,
+          "period_key": 201601
+        },
+        {
+          "well_id": 130517,
+          "period_key": 201602
+        },
+        {
+          "well_id": 137075,
+          "period_key": 201602
+        }
+      ]
+    },
+    {
+      "rule_id": "I02",
+      "name_es": "Filas cargadas automáticamente como sin movimientos",
+      "severity": "informativa",
+      "status": "pasa",
+      "rows_affected": 7421,
+      "wells_affected": 421,
+      "examples": [
+        {
+          "well_id": 145330,
+          "period_key": 201801
+        },
+        {
+          "well_id": 145330,
+          "period_key": 201802
+        },
+        {
+          "well_id": 145330,
+          "period_key": 201803
+        },
+        {
+          "well_id": 145330,
+          "period_key": 201804
+        },
+        {
+          "well_id": 145330,
+          "period_key": 201805
+        }
+      ]
+    },
+    {
+      "rule_id": "I03",
+      "name_es": "Meses sin fila dentro del período de un pozo",
+      "severity": "informativa",
+      "status": "pasa",
+      "rows_affected": 7420,
+      "wells_affected": 703,
+      "examples": [
+        {
+          "well_id": 8043,
+          "missing_months": 1
+        },
+        {
+          "well_id": 11641,
+          "missing_months": 1
+        },
+        {
+          "well_id": 11642,
+          "missing_months": 1
+        },
+        {
+          "well_id": 11643,
+          "missing_months": 1
+        },
+        {
+          "well_id": 34833,
+          "missing_months": 1
+        }
+      ]
+    }
+  ]
+}

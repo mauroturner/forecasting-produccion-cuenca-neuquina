@@ -391,7 +391,10 @@ def _run_spec(spec: TaskSpec, ctx: RunContext) -> dict:
             _record(ctx, status="failed", finished_at=_now_text(), message=message)
         logger.error("task %s failed after %.1f s: %s", spec.task_id, time.perf_counter() - started, message)
         raise
-    result = {**result, "seconds": round(time.perf_counter() - started, 2)}
+    # A task that reports its own stage times (the backtest and the forecast) keeps them as ``stage_seconds``;
+    # ``seconds`` is always the wall time of the whole task.
+    stages = {"stage_seconds": result["seconds"]} if isinstance(result.get("seconds"), dict) else {}
+    result = {**result, **stages, "seconds": round(time.perf_counter() - started, 2)}
     _save_task(ctx, spec.task_id, result, status=result.get("status"))
     logger.info("task %s end in %.1f s", spec.task_id, result["seconds"])
     return result

@@ -105,3 +105,18 @@ def test_make_fixture_writes_a_publication_the_pipeline_accepts(tmp_path: Path, 
     assert main(["task", "check_publication", "--config", str(config), "--run-key", "k"]) == EXIT_OK
     assert main(["task", "download", "--config", str(config), "--run-key", "k"]) == EXIT_OK
     assert main(["task", "validate", "--config", str(config), "--run-key", "k"]) == EXIT_OK
+
+
+def test_figures_draws_the_four_pngs_next_to_the_readme(copy_of_run, capsys) -> None:
+    root, config = copy_of_run
+    assert main(["figures", "--config", str(config)]) == EXIT_OK
+    out = capsys.readouterr().out
+    names = ["example_well_fit.png", "method_comparison.png", "coverage.png", "basin_forecast.png"]
+    assert all((root / "docs" / "figures" / name).read_bytes()[:4] == b"\x89PNG" for name in names)
+    assert all(name in out for name in names)
+
+
+def test_figures_without_a_run_exits_with_two_and_says_what_to_do(tmp_path: Path, fixture_csv: Path, capsys) -> None:
+    assert main(["figures", "--config", str(write_config(tmp_path, fixture_csv))]) == EXIT_USAGE
+    assert "run the pipeline" in capsys.readouterr().err
+    assert not (tmp_path / "docs").exists()

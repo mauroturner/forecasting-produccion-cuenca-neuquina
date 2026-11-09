@@ -14,9 +14,11 @@ import sys
 from pathlib import Path
 
 from oilgas.config import PROJECT_ROOT, PipelineConfig, load_config
+from oilgas.figures import make_figures
 from oilgas.pipeline import TASK_IDS, TASKS, make_run_key, run_all, run_task
 from oilgas.reporting import sync_block
 from oilgas.validate import ValidationError
+from oilgas.warehouse import connect
 
 RESULTS_START = "<!-- results:start -->"
 RESULTS_END = "<!-- results:end -->"
@@ -42,6 +44,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     sync = commands.add_parser("docs-sync", help="copy the backtest results block into the README")
     sync.add_argument("--config", type=Path)
+
+    figures = commands.add_parser("figures", help="draw the figures of the documentation (docs/figures/*.png) from the last run")
+    figures.add_argument("--config", type=Path)
 
     fixture = commands.add_parser("make-fixture", help="write a synthetic publication for tests and quick runs")
     fixture.add_argument("output", type=Path, metavar="OUTPUT.csv")
@@ -72,6 +77,18 @@ def docs_sync(cfg: PipelineConfig) -> bool:
     return sync_block(cfg.paths.readme, RESULTS_START, RESULTS_END, summary.read_text(encoding="utf-8"))
 
 
+def draw_figures(cfg: PipelineConfig) -> list[Path]:
+    """Draw the documentation figures from the warehouse of the last run into ``docs/figures`` next to the README."""
+    warehouse = Path(cfg.paths.warehouse)
+    if not warehouse.exists():
+        raise FileNotFoundError(f"{warehouse} does not exist: run the pipeline first (python -m oilgas run)")
+    conn = connect(warehouse)
+    try:
+        return make_figures(conn, Path(cfg.paths.reports_dir), Path(cfg.paths.readme).parent / "docs" / "figures")
+    finally:
+        conn.close()
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -90,6 +107,15 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "docs-sync":
             _say("README updated" if docs_sync(cfg) else "README already up to date")
+            return EXIT_OK
+        if args.command == "figures":
+            try:
+                paths = draw_figures(cfg)
+            except ValueError as error:  # the warehouse holds no backtest yet
+                _fail(f"error: {error}")
+                return EXIT_USAGE
+            for path in paths:
+                _say(f"wrote {path}")
             return EXIT_OK
         if args.command == "task":
             result = run_task(args.task, args.run_key, cfg)
@@ -113,4 +139,4 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_FAILED
 
 
-__all__ = ["build_parser", "docs_sync", "main", "make_run_key"]
+__all__ = ["build_parser", "docs_sync", "draw_figures", "main", "make_run_key"]

@@ -309,3 +309,15 @@ def test_an_adopted_file_is_not_downloaded_again(tmp_path: Path, fixture_csv: Pa
         outcome = run_all(cfg, adopt=fixture_csv, only=["check_publication", "download"], now=NOW)
         assert outcome[1]["result"]["how"] == "adopt" and server.methods() == ["HEAD"]  # no GET
     assert read_manifest(tmp_path / "data/raw/manifest.json")[0].sha256 == hashlib.sha256(body).hexdigest()
+
+
+def test_a_tasks_own_stage_times_are_kept_next_to_its_total(tmp_path: Path) -> None:
+    """The backtest and the forecast report their stages; the run state must keep them, not overwrite them with the total."""
+    cfg = load_config()
+    ctx = pipeline.RunContext(cfg, "k", NOW, tmp_path / "state.json")
+    staged = pipeline.TaskSpec("staged", lambda _: {"seconds": {"ml": 2.5, "total": 3.0}, "rows": 1}, 0, 0, 1)
+    plain = pipeline.TaskSpec("plain", lambda _: {"rows": 2}, 0, 0, 1)
+    result = pipeline._run_spec(staged, ctx)
+    assert result["stage_seconds"] == {"ml": 2.5, "total": 3.0} and isinstance(result["seconds"], float)
+    assert json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))["tasks"]["staged"]["stage_seconds"]["ml"] == 2.5
+    assert "stage_seconds" not in pipeline._run_spec(plain, ctx) and plain.func(ctx) == {"rows": 2}
