@@ -105,3 +105,40 @@ def fixture_panel(warehouse_conn):
     from oilgas.series import build_panel
 
     return build_panel(warehouse_conn)
+
+
+@pytest.fixture(scope="session")
+def modeled_warehouse(tmp_path_factory: pytest.TempPathFactory, warehouse_path: Path, valid_report) -> Path:
+    """The fixture warehouse after the backtest and the forecast, with its run and validation recorded as 'r1'.
+
+    Shared by the whole session and read-only: a test that writes (the export builds marts) copies it first.
+    """
+    from oilgas.backtest import run_backtest
+    from oilgas.forecast import run_production_forecast
+    from oilgas.warehouse import connect, record_run, record_validation_results
+    from tests.fixtures.modeling import RunCtx, small_cfg
+
+    root = tmp_path_factory.mktemp("modeled")
+    path = root / "production.sqlite"
+    shutil.copy(warehouse_path, path)
+    ctx = RunCtx(small_cfg(path, root / "interim"), "r1")
+    run_backtest(ctx)
+    run_production_forecast(ctx)
+    conn = connect(path)
+    record_run(conn, {
+        "run_key": "r1", "started_at": "2025-01-15T09:00:00+00:00", "finished_at": "2025-01-15T09:30:00+00:00", "status": "ok",
+        "source_url": "http://example.test/resource.csv", "source_etag": '"v1"', "source_last_modified": "Wed, 15 Jan 2025 00:00:00 GMT",
+        "source_size": 1234, "source_sha256": "ab" * 32, "last_period_key": valid_report.last_period_key,
+        "rows_subset": valid_report.rows_subset, "wells_subset": valid_report.wells_subset, "revised_rows": 0, "message": "ok",
+    })
+    record_validation_results(conn, valid_report)
+    conn.close()
+    return path
+
+
+@pytest.fixture()
+def modeled_copy(tmp_path: Path, modeled_warehouse: Path) -> Path:
+    """A private copy of the modeled warehouse that a test may write to."""
+    path = tmp_path / "production.sqlite"
+    shutil.copy(modeled_warehouse, path)
+    return path

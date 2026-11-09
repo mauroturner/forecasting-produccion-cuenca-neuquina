@@ -225,9 +225,10 @@ def test_run_checks_rejects_an_unknown_group(conn) -> None:
         run_checks(conn, "nonsense")
 
 
-def test_model_checks_are_empty_until_the_model_defines_them(conn) -> None:
+def test_the_model_controls_read_the_model_marts_so_they_need_them(conn) -> None:
     apply_schema(conn)
-    assert run_checks(conn, "model") == [] or all(c.violations == 0 for c in run_checks(conn, "model"))
+    with pytest.raises(sqlite3.OperationalError, match="no such table"):  # export builds the marts first (build_model_marts)
+        run_checks(conn, "model")
 
 
 def test_every_production_check_exists_and_is_named_after_its_file() -> None:
