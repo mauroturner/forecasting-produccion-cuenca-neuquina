@@ -21,7 +21,7 @@ from oilgas.baselines import naive_mean3
 from oilgas.config import PipelineConfig, load_config
 from oilgas.metrics import coverage
 from oilgas.series import SeriesPanel, column_of
-from tests.fixtures.synthetic_panel import FIRST_INDEX, perturb_after, synthetic_panel
+from tests.fixtures.synthetic_panel import FIRST_INDEX, drop_months, perturb_after, synthetic_panel
 
 CFG = load_config()
 KEYS = ["fluid", "well_id", "origin", "horizon", "method"]
@@ -200,6 +200,25 @@ def test_scrambling_everything_after_an_origin_changes_no_forecast_made_at_or_be
     if keep_gaps:
         assert len(common) == len(a) == len(b)
         assert not np.array_equal(a["actual"].to_numpy(), b["actual"].to_numpy())  # the targets did change
+
+
+def test_deleting_the_rows_after_an_origin_that_follows_a_month_without_rows_changes_no_forecast_at_it() -> None:
+    """The evaluator's finding (B1): whether an origin was fitted must not depend on what comes after a later origin."""
+    base = synthetic_panel(n_wells=14, n_months=48, seed=3, young_wells=0, with_awkward_cases=False)
+    plan = plan_for(base, n_eval=14, n_warmup=0)  # origins 33..46
+    origin = plan.eval_origins[1]  # 34: its own month has no row in either panel
+    col = column_of(base, origin)
+    cfg = quick_cfg(n_workers=1)
+    full = drop_months(base, [col])  # the previous origin, 33, still has targets 35..45 here
+    later_deleted = drop_months(base, range(col, col + 12))  # 33 has no target left; 34 keeps only month 46 (horizon 12)
+    a = run_point_methods(full, plan, cfg).query("origin == @origin")
+    b = run_point_methods(later_deleted, plan, cfg).query("origin == @origin")
+    assert set(b["horizon"]) == {12} and set(a["horizon"]) > {12}
+    a, b = (f.assign(**{k: f[k].astype(str) for k in ("fluid", "method")}).set_index(KEYS).sort_index() for f in (a, b))
+    common = b.index
+    assert len(common) > 20
+    assert np.array_equal(a.loc[common, "p50"].to_numpy(), b.loc[common, "p50"].to_numpy())
+    assert (a.loc[common, "fit_status"].astype(str) == b.loc[common, "fit_status"].astype(str)).all()
 
 
 def test_the_bands_at_an_origin_use_only_errors_whose_target_is_not_after_it(panel: SeriesPanel) -> None:

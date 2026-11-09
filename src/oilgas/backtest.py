@@ -9,7 +9,8 @@ after ``o``. The frame is long, one row per forecast:
 p10, p50, p90, fit_status`` with volumes in the fluid's unit and ``origin`` a month index.
 
 The wells are split into interleaved groups that worker processes fit independently; a well is always
-processed whole and in origin order (so the Arps warm start is the same), and the result is sorted by
+processed whole and in origin order (so the Arps warm start is the same, and it depends only on data up to each
+origin), and the result is sorted by
 (fluid, well, origin, method, horizon): one process or many give the same frame (AC22).
 """
 
@@ -153,14 +154,21 @@ def _run_group(task: _GroupTask) -> dict[str, np.ndarray]:
                 segment = segment_at(rate_row, col, task.min_points)
                 if segment == "inactive":
                     continue
-                valid = _valid_horizons(rate_row, col, task)
-                if valid.size == 0:
-                    continue
                 peak = peak_column(rate_row, col)
                 points = post_peak_points(rate_row, col)
                 n_post = points[0].size
                 bucket = AGE_BUCKETS.index(age_bucket(n_post, task.min_points))
                 fits: dict[str, FitResult] = {}
+                if segment != "young":
+                    # Every Arps variant is fitted at every origin where the series is eligible, whether or not this
+                    # origin has a target to score. The fit starts from the previous origin's solution, so whether an
+                    # origin was fitted must depend on the data up to it and on nothing after it (AC11, D39).
+                    for method in task.methods:
+                        if method.startswith("arps"):
+                            _fit(method, fits, warm, peak, points, task.arps)
+                valid = _valid_horizons(rate_row, col, task)
+                if valid.size == 0:
+                    continue
                 for method in task.methods:
                     arps = method.startswith("arps")
                     if arps and segment == "young":

@@ -110,3 +110,22 @@ def perturb_after(panel: SeriesPanel, origin_col: int, seed: int = 99, keep_gaps
         rate={fluid: volume[fluid] / days[None, :] for fluid in volume},
         water_rate=water,
     )
+
+
+def drop_months(panel: SeriesPanel, columns: range | list[int]) -> SeriesPanel:
+    """A copy of the panel with no row (NaN) in the given month columns, for every well and fluid."""
+    cols = list(columns)
+    days = panel.days_in_month
+
+    def emptied(volume: np.ndarray) -> np.ndarray:
+        out = volume.copy()
+        out[:, cols] = np.nan
+        return out
+
+    volume = {fluid: emptied(panel.volume[fluid]) for fluid in panel.volume}
+    return dataclasses.replace(
+        panel,
+        volume=volume,
+        rate={fluid: volume[fluid] / days[None, :] for fluid in volume},
+        water_rate=emptied(panel.water_rate * days[None, :]) / days[None, :],
+    )
