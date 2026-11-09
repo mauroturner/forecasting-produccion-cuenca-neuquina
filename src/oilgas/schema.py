@@ -78,3 +78,13 @@ def read_source_csv(path: Path) -> pd.DataFrame:
         keep_default_na=False,
         na_values=[""],
     )
+
+
+def period_index_of(year, month):
+    """Month index ``year * 12 + month - 1``: the arithmetic of months (D03). Works on numbers and arrays."""
+    return year * 12 + month - 1
+
+
+def period_index_of_key(period_key):
+    """Month index of a ``period_key`` written ``AAAAMM`` (``period_index_of`` of its year and month)."""
+    return period_index_of(period_key // 100, period_key % 100)

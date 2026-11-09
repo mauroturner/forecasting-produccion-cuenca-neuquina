@@ -11,9 +11,12 @@ from __future__ import annotations
 import hashlib
 import http.client
 import json
+import logging
 import os
 import re
 import shutil
+import tempfile
+import time
 import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass, fields, replace
@@ -22,9 +25,12 @@ from email.utils import formatdate
 from pathlib import Path
 from typing import Literal
 
+logger = logging.getLogger(__name__)
+
 USER_AGENT = "oilgas-pipeline/0.1"
 MANIFEST_VERSION = 1
 STATUSES = ("downloaded", "loaded", "rejected")
+SETTLED = ("loaded", "rejected")  # a run in one of these states is past its download
 _CONTENT_RANGE = re.compile(r"bytes\s+\d+-\d+/(\d+)")
 
 
@@ -88,7 +94,9 @@ def head_remote(url: str, timeout_s: int) -> RemoteMeta:
             size = int(match.group(1))
         elif headers.get("Content-Length", "").isdigit():
             size = int(headers["Content-Length"])
-        return RemoteMeta(url, headers.get("ETag"), headers.get("Last-Modified"), size)
+        meta = RemoteMeta(url, headers.get("ETag"), headers.get("Last-Modified"), size)
+    logger.info("HEAD %s -> etag=%s last_modified=%s size=%s", url, meta.etag, meta.last_modified, meta.size)
+    return meta
 
 
 def local_meta(path: Path) -> RemoteMeta:
@@ -132,11 +140,23 @@ def read_manifest(path: Path) -> list[ManifestEntry]:
 
 
 def _write_manifest(path: Path, entries: list[ManifestEntry]) -> None:
+    """Write to a temporary file of its own in the manifest's folder, then rename (atomic, RNF05).
+
+    The temporary name is unique, so two overlapping writers never share it.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     document = {"version": MANIFEST_VERSION, "entries": [asdict(e) for e in entries]}
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(document, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    os.replace(temporary, path)
+    handle = tempfile.NamedTemporaryFile(
+        "w", encoding="utf-8", dir=path.parent, prefix=path.name + ".", suffix=".tmp", delete=False
+    )
+    temporary = Path(handle.name)
+    try:
+        with handle:
+            handle.write(json.dumps(document, indent=2, ensure_ascii=False) + "\n")
+        os.replace(temporary, path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def _check_status(status: str) -> None:
@@ -145,13 +165,28 @@ def _check_status(status: str) -> None:
 
 
 def append_manifest(path: Path, entry: ManifestEntry) -> None:
-    """Add an entry; one with the same `run_key` is replaced, so repeating a task changes nothing."""
+    """Add an entry; one with the same `run_key` is replaced, so repeating a task changes nothing.
+
+    An entry that is already past ``downloaded`` (``loaded`` or ``rejected``) is never replaced by a
+    ``downloaded`` one: running the download task again after the load must not make the run look
+    unloaded. The settled entry is kept as it is (``mark_manifest`` is the explicit way to change a status).
+    """
     _check_status(entry.status)
     entries = read_manifest(path)
-    if any(e.run_key == entry.run_key for e in entries):
-        entries = [entry if e.run_key == entry.run_key else e for e in entries]
-    else:
+    existing = next((e for e in entries if e.run_key == entry.run_key), None)
+    if existing is None:
         entries.append(entry)
+    elif existing.status in SETTLED and entry.status not in SETTLED:
+        logger.warning(
+            "manifest %s: run_key %s is already %s; the %s entry was not applied",
+            path, entry.run_key, existing.status, entry.status,
+        )
+        return
+    else:
+        logger.info(
+            "manifest %s: run_key %s replaced (%s -> %s)", path, entry.run_key, existing.status, entry.status
+        )
+        entries = [entry if e.run_key == entry.run_key else e for e in entries]
     _write_manifest(Path(path), entries)
 
 
@@ -162,6 +197,7 @@ def mark_manifest(path: Path, run_key: str, status: str) -> None:
     if not any(e.run_key == run_key for e in entries):
         raise ValueError(f"no manifest entry for run_key {run_key!r} in {path}")
     _write_manifest(Path(path), [replace(e, status=status) if e.run_key == run_key else e for e in entries])
+    logger.info("manifest %s: run_key %s marked %s", path, run_key, status)
 
 
 def last_loaded(entries: list[ManifestEntry]) -> ManifestEntry | None:
@@ -188,10 +224,12 @@ def download_file(
     part = dest.with_name(dest.name + ".part")
     digest = hashlib.sha256()
     received = 0
+    started = time.perf_counter()
     with _open(url, "GET", timeout_s) as response:
         announced = expected_size
         if announced is None and response.headers.get("Content-Length", "").isdigit():
             announced = int(response.headers["Content-Length"])
+        logger.info("download start: %s (announced size %s) to %s", url, announced, part)
         dest.parent.mkdir(parents=True, exist_ok=True)
         try:
             with part.open("wb") as handle:
@@ -200,15 +238,20 @@ def download_file(
                     digest.update(chunk)
                     received += len(chunk)
         except (http.client.IncompleteRead, ConnectionError) as error:
+            logger.error("download interrupted: %s after %d bytes; kept %s", url, received, part)
             raise DownloadError(
                 f"The connection to {url} closed after {received} bytes; kept {part}."
             ) from error
     if announced is not None and received != announced:
+        logger.error("download size mismatch: %s gave %d bytes, expected %d; kept %s", url, received, announced, part)
         raise DownloadError(
             f"Downloaded {received} bytes from {url} but expected {announced}; kept {part} and did not "
             f"replace {dest}."
         )
     os.replace(part, dest)
+    logger.info(
+        "download end: %s, %d bytes, sha256 %s, %.1f s", dest, received, digest.hexdigest(), time.perf_counter() - started
+    )
     return dest, digest.hexdigest()
 
 
@@ -254,4 +297,5 @@ def quarantine(path: Path, quarantine_dir: Path, sha256: str) -> Path:
         if target.exists():
             target.unlink()
         shutil.move(str(path), str(target))
+    logger.warning("quarantined %s as %s", path, target)
     return target

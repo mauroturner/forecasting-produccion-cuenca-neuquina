@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 from dataclasses import dataclass, field
 from datetime import date
@@ -25,7 +26,9 @@ import numpy as np
 import pandas as pd
 
 from oilgas.config import PipelineConfig
-from oilgas.schema import SOURCE_COLUMNS, USED_COLUMNS, read_source_csv
+from oilgas.schema import SOURCE_COLUMNS, USED_COLUMNS, period_index_of, period_index_of_key, read_source_csv
+
+logger = logging.getLogger(__name__)
 
 EXAMPLE_LIMIT = 5
 AUTO_LOADED_MARKER = "[Sin movimientos]"  # the published text has a few variants of the words before it
@@ -178,6 +181,19 @@ def _examples(frame: pd.DataFrame, columns: dict[str, str]) -> list[dict]:
     return [{out: _example_value(out, head[src].iloc[i]) for out, src in columns.items()} for i in range(len(head))]
 
 
+def _log_verdict(report: ValidationReport) -> None:
+    """One line with the verdict and the counts of a validation (RNF12)."""
+    blocking = [r.rule_id for r in report.results if r.severity is Severity.BLOCKING and not r.passed]
+    warnings = [r.rule_id for r in report.results if r.severity is Severity.WARNING and not r.passed]
+    logger.log(
+        logging.WARNING if blocking else logging.INFO,
+        "validation of %s: %s; rows_file=%d rows_subset=%d wells_subset=%d periods=%d-%d; blocking failed: %s; warnings: %s; not evaluated: %s",
+        report.run_key, "rejected" if blocking else "accepted", report.rows_file, report.rows_subset, report.wells_subset,
+        report.first_period_key, report.last_period_key, ", ".join(blocking) or "none", ", ".join(warnings) or "none",
+        ", ".join(report.not_evaluated) or "none",
+    )
+
+
 # --- validation -------------------------------------------------------------------------------------
 
 
@@ -207,6 +223,7 @@ def validate_file(
             run_key, source_sha256, rows_file, rows_subset, wells, first, last, ordered,
             tuple(i for i in RULES if i not in results),
         )
+        _log_verdict(report)
         return report, (None if report.blocking_failed else frame)
 
     # V01: the file reads as UTF-8 CSV
@@ -250,13 +267,13 @@ def validate_file(
     pk = (year * 100 + month).where(ok)
     month_ok = month.between(1, 12)
     cal_ok = ok & month_ok & year.between(1900, 2200)
-    pidx = (year * 12 + month - 1).where(cal_ok)
+    pidx = period_index_of(year, month).where(cal_ok)
 
     # V04: month, year range, not in the future
     today_pk = today.year * 100 + today.month
     out_of_range = ok & (~month_ok | (year < cfg.scope.first_year) | (year > today.year) | (pk > today_pk))
     add("V04", not out_of_range.any(), int(out_of_range.sum()), int(well[out_of_range].nunique()),
-        _examples(pd.DataFrame({"well_id": well, "period_key": pk, "value": pk})[out_of_range],
+        _examples(pd.DataFrame({"well_id": well, "period_key": pk})[out_of_range],
                   {"well_id": "well_id", "period_key": "period_key"}))
 
     # V05: period_end is the last day of the month
@@ -362,7 +379,8 @@ def validate_file(
     _rule_v20(add, previous, cfg, pk, pidx, cal_ok, oil, gas, well)
 
     # Informational
-    effective_idle = (w["well_status"] == EFFECTIVE_STATE) & ~producing & ok
+    # A month is idle only when both volumes are known: an unparseable one (NaN) is unknown, not zero (V07 counts it).
+    effective_idle = (w["well_status"] == EFFECTIVE_STATE) & ~producing & oil.notna() & gas.notna() & ok
     add("I01", True, int(effective_idle.sum()), int(well[effective_idle].nunique()),
         _examples(pd.DataFrame({"well_id": well, "period_key": pk})[effective_idle], {"well_id": "well_id", "period_key": "period_key"}))
     auto = w["remarks"].fillna("").str.contains(AUTO_LOADED_MARKER, regex=False) & ok
@@ -402,7 +420,7 @@ def _rule_v20(add, previous, cfg, pk, pidx, cal_ok, oil, gas, well) -> None:
     old = previous.period_totals.set_index("period_key")[["oil_m3", "gas_thousand_m3"]]
     joined = old.join(new, how="left").fillna({"oil": 0.0, "gas": 0.0})
     last_idx = int(pidx[cal_ok].max())
-    age = last_idx - ((joined.index // 100) * 12 + joined.index % 100 - 1)
+    age = last_idx - period_index_of_key(joined.index)
     tol = cfg.validation.revision_total_tolerance
     moved = (
         ((joined["oil"] - joined["oil_m3"]).abs() > tol * joined["oil_m3"].abs())
@@ -420,7 +438,7 @@ def _rule_v20(add, previous, cfg, pk, pidx, cal_ok, oil, gas, well) -> None:
 def _typed_subset(w: pd.DataFrame, year: pd.Series, month: pd.Series, well: pd.Series) -> pd.DataFrame:
     """The validated frame: English names, typed columns, values as published."""
     out = pd.DataFrame(index=w.index)
-    for source, (english, kind) in USED_COLUMNS.items():
+    for english, kind in USED_COLUMNS.values():
         column = w[english]
         if kind == "int":
             out[english] = {"year": year, "month": month, "well_id": well}[english].astype("int64")
@@ -435,7 +453,7 @@ def _typed_subset(w: pd.DataFrame, year: pd.Series, month: pd.Series, well: pd.S
         else:
             out[english] = column.astype(object).where(column.notna(), None)
     out["period_key"] = out["year"] * 100 + out["month"]
-    out["period_index"] = out["year"] * 12 + out["month"] - 1
+    out["period_index"] = period_index_of(out["year"], out["month"])
     return out
 
 

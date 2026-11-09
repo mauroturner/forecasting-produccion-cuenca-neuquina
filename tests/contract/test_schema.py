@@ -96,3 +96,17 @@ def test_the_valid_fixture_has_the_published_shape(fixture_csv: Path) -> None:
     df = read_source_csv(fixture_csv)
     assert tuple(df.columns) == SOURCE_COLUMNS
     assert len(df) > 2000
+
+
+def test_period_index_helpers_agree_with_the_calendar() -> None:
+    import numpy as np
+
+    from oilgas.schema import period_index_of, period_index_of_key
+
+    assert period_index_of(2026, 9) == 2026 * 12 + 8
+    assert period_index_of_key(202609) == period_index_of(2026, 9)
+    assert period_index_of_key(200601) == 2006 * 12  # January is the first month of its year
+    assert period_index_of(2026, 1) - period_index_of(2025, 12) == 1
+    keys = pd.Index([200601, 202612])  # works on the arrays the validation uses
+    assert list(period_index_of_key(keys)) == [2006 * 12, 2026 * 12 + 11]
+    assert list(period_index_of(np.array([2006, 2026]), np.array([1, 12]))) == [2006 * 12, 2026 * 12 + 11]

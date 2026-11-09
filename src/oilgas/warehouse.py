@@ -12,6 +12,7 @@ Rules of the runner (docs/plan.md section 5, D04):
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -23,9 +24,12 @@ import pandas as pd
 from oilgas.config import PipelineConfig, load_config
 from oilgas.validate import SEVERITY_ES, PreviousLoad, ValidationReport
 
+logger = logging.getLogger(__name__)
+
 SQL_DIR = Path(__file__).resolve().parents[2] / "sql"
 CHECK_GROUPS = ("production", "model")
 SAMPLE_LIMIT = 5
+BUSY_TIMEOUT_MS = 30_000  # an overlapping run waits this long for the write lock before failing
 # Built in this order after raw_monthly_production is replaced.
 PRODUCTION_BUILD = (
     "staging/stg_monthly_production.sql",
@@ -75,6 +79,25 @@ class CheckFailedError(RuntimeError):
         super().__init__(f"The load was rolled back; controls with violations: {detail}")
 
 
+class SchemaDriftError(RuntimeError):
+    """A table of the warehouse does not have the columns its SQL definition declares (R4)."""
+
+    def __init__(self, table: str, source: str, missing: tuple[str, ...], unexpected: tuple[str, ...],
+                 retyped: tuple[str, ...]) -> None:
+        self.table, self.missing, self.unexpected, self.retyped = table, missing, unexpected, retyped
+        parts = []
+        if missing:
+            parts.append(f"missing columns {list(missing)}")
+        if unexpected:
+            parts.append(f"unexpected columns {list(unexpected)}")
+        if retyped:
+            parts.append(f"columns of another type {list(retyped)}")
+        super().__init__(
+            f"Table {table} does not match its definition in sql/schema/{source}: {'; '.join(parts)}. "
+            "The warehouse was created by an older version: rebuild it (docs/runbook.md, R10)."
+        )
+
+
 # --- connection and SQL files -----------------------------------------------------------------------
 
 
@@ -83,6 +106,7 @@ def connect(path: Path) -> sqlite3.Connection:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path, isolation_level=None)
+    conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
     conn.execute("PRAGMA journal_mode=DELETE")
     conn.execute("PRAGMA synchronous=FULL")
     conn.execute("PRAGMA foreign_keys=ON")
@@ -129,9 +153,39 @@ def run_sql_file(conn: sqlite3.Connection, path: Path, params: Mapping[str, obje
         conn.execute(statement, dict(params or {}))
 
 
+def _declared_tables(path: Path) -> dict[str, dict[str, str]]:
+    """``{table: {column: declared type}}`` of a schema file, read by creating its tables in memory."""
+    scratch = sqlite3.connect(":memory:")
+    try:
+        for statement in split_statements(Path(path).read_text(encoding="utf-8")):
+            scratch.execute(statement)
+        names = [r[0] for r in scratch.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")]
+        return {t: {r[1]: (r[2] or "").upper() for r in scratch.execute(f"PRAGMA table_info({t})")} for t in names}
+    finally:
+        scratch.close()
+
+
+def _check_no_drift(conn: sqlite3.Connection, path: Path) -> None:
+    """Raise ``SchemaDriftError`` if a table that already exists has other columns than the file declares."""
+    for table, declared in _declared_tables(path).items():
+        if not _table_exists(conn, table):
+            continue
+        actual = {r[1]: (r[2] or "").upper() for r in conn.execute(f"PRAGMA table_info({table})")}
+        missing = tuple(c for c in declared if c not in actual)
+        unexpected = tuple(c for c in actual if c not in declared)
+        retyped = tuple(c for c in declared if c in actual and declared[c] != actual[c])
+        if missing or unexpected or retyped:
+            raise SchemaDriftError(table, Path(path).name, missing, unexpected, retyped)
+
+
 def apply_schema(conn: sqlite3.Connection) -> None:
-    """Create the tables of ``sql/schema`` that do not exist yet (idempotent; keeps the data)."""
+    """Create the tables of ``sql/schema`` that do not exist yet (idempotent; keeps the data).
+
+    A table that exists with other columns than its SQL file declares is not migrated: it raises
+    ``SchemaDriftError`` naming the table and the columns, instead of failing later with a generic error.
+    """
     for path in sorted((SQL_DIR / "schema").glob("*.sql")):
+        _check_no_drift(conn, path)
         run_sql_file(conn, path)
 
 
@@ -218,7 +272,10 @@ def load_validated_subset(
             run_sql_file(conn, SQL_DIR / name, params)
 
         checks = run_checks(conn, "production")
-        if any(c.violations for c in checks):
+        failing = [c for c in checks if c.violations]
+        for c in failing:
+            logger.error("load %s rolled back: control %s violations=%d sample=%s", run_key, c.check_id, c.violations, c.sample)
+        if failing:
             raise CheckFailedError(checks)
         rows, wells, last = conn.execute(
             "SELECT COUNT(*), COUNT(DISTINCT well_id), MAX(period_key) FROM raw_monthly_production"
@@ -230,7 +287,12 @@ def load_validated_subset(
     except BaseException:
         if conn.in_transaction:
             conn.execute("ROLLBACK")
+        logger.warning("load %s rolled back: the warehouse keeps what it had", run_key)
         raise
+    logger.info(
+        "load %s: rows=%d wells=%d last_period_key=%d revised_rows=%d controls=%d violations=%d",
+        run_key, rows, wells, last, revised, len(checks), sum(c.violations for c in checks),
+    )
     return LoadResult(int(rows), int(wells), int(last), int(revised), checks)
 
 

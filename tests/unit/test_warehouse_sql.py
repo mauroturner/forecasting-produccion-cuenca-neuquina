@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -11,6 +13,8 @@ import pytest
 from oilgas import warehouse
 from oilgas.validate import Severity
 from oilgas.warehouse import (
+    BUSY_TIMEOUT_MS,
+    SchemaDriftError,
     apply_schema,
     connect,
     record_run,
@@ -279,3 +283,69 @@ def test_each_check_returns_the_rows_that_break_its_rule(conn) -> None:
     assert found["chk_stg_unique_key"].sample == [(1, 202001, 2)]
     assert found["chk_fact_production_fk_well"].sample == [(9, 202001)]
     assert found["chk_dim_calendar_contiguous"].sample == [(2,)]
+
+
+# --- hardening (H1): busy timeout and schema drift ------------------------------------------------------
+
+
+def test_connect_waits_for_a_lock_instead_of_failing_at_once(tmp_path: Path) -> None:
+    path = tmp_path / "w.sqlite"
+    holder = connect(path)
+    assert holder.execute("PRAGMA busy_timeout").fetchone()[0] == BUSY_TIMEOUT_MS >= 30_000
+    holder.execute("CREATE TABLE t (x INTEGER)")
+    holder.execute("BEGIN IMMEDIATE")  # a run holds the write lock
+    outcome: dict[str, object] = {}
+
+    def overlapping_run() -> None:  # a second run, in its own thread and connection
+        waiter = connect(path)
+        started = time.perf_counter()
+        try:
+            waiter.execute("BEGIN IMMEDIATE")
+            outcome["waited"] = time.perf_counter() - started
+            waiter.execute("COMMIT")
+        except sqlite3.OperationalError as error:
+            outcome["error"] = error
+        finally:
+            waiter.close()
+
+    thread = threading.Thread(target=overlapping_run)
+    thread.start()
+    time.sleep(0.6)
+    holder.execute("COMMIT")
+    thread.join(timeout=10)
+    holder.close()
+    assert "error" not in outcome  # it did not fail with 'database is locked'
+    assert outcome["waited"] >= 0.4  # it waited for the first run
+
+
+def test_a_table_with_an_extra_column_is_reported_as_schema_drift(conn) -> None:
+    apply_schema(conn)
+    conn.execute("ALTER TABLE model_fit ADD COLUMN stray TEXT")
+    with pytest.raises(SchemaDriftError) as info:
+        apply_schema(conn)
+    assert info.value.table == "model_fit" and info.value.unexpected == ("stray",) and info.value.missing == ()
+    assert "model_fit" in str(info.value) and "stray" in str(info.value) and "002_model.sql" in str(info.value)
+
+
+def test_a_table_with_a_renamed_column_names_the_missing_and_the_unexpected_ones(conn) -> None:
+    apply_schema(conn)
+    conn.execute("ALTER TABLE model_forecast RENAME COLUMN p10 TO p_ten")
+    with pytest.raises(SchemaDriftError) as info:
+        apply_schema(conn)
+    assert (info.value.table, info.value.missing, info.value.unexpected) == ("model_forecast", ("p10",), ("p_ten",))
+
+
+def test_a_column_of_another_declared_type_is_schema_drift(conn) -> None:
+    apply_schema(conn)
+    conn.execute("DROP TABLE period_totals")
+    conn.execute("CREATE TABLE period_totals (run_key TEXT, period_key TEXT, oil_m3 REAL, gas_thousand_m3 REAL, rows INTEGER)")
+    with pytest.raises(SchemaDriftError, match="period_key") as info:
+        apply_schema(conn)
+    assert info.value.table == "period_totals" and info.value.retyped == ("period_key",)
+
+
+def test_a_matching_schema_and_a_missing_table_are_not_drift(conn) -> None:
+    apply_schema(conn)
+    conn.execute("DROP TABLE model_selection")  # a table that does not exist yet is simply created
+    apply_schema(conn)
+    assert "model_selection" in tables(conn)

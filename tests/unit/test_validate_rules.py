@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
@@ -457,3 +458,77 @@ def test_example_identifiers_are_integers(valid, tmp_path: Path) -> None:
                     assert type(example[name]) is int, (r.rule_id, example)
     text = write_report(report, tmp_path)[0].read_text(encoding="utf-8")
     assert '"well_id": 1000' in text and ".0," not in text.split('"V12"')[1].split('"V13"')[0]
+
+
+# --- hardening (H1): parser errors, unknown volumes, labels, logs ---------------------------------------
+
+
+def test_v01_rejects_a_csv_with_an_unclosed_quote(fixture_csv: Path, tmp_path: Path) -> None:
+    lines = fixture_csv.read_bytes().decode("utf-8-sig").split(chr(10))
+    lines[5] = lines[5].replace(",", ',"unclosed', 1)  # a quote opens at the start of a field and never closes
+    path = tmp_path / "unclosed.csv"
+    path.write_bytes(chr(10).join(lines).encode("utf-8"))
+    report, frame = run(path)
+    v01 = rule(report, "V01")
+    assert not v01.passed and v01.severity is Severity.BLOCKING
+    assert v01.examples[0]["error"].startswith("ParserError")
+    assert report.blocking_failed and frame is None
+    assert report.rows_file == 0 and "V03" in report.not_evaluated
+
+
+def test_i01_does_not_count_a_row_whose_volume_does_not_convert(valid, fixture_truth: FixtureTruth, edit) -> None:
+    baseline = rule(valid[0], "I01")
+    well, period = fixture_truth.effective_state_zero_rows[0]
+
+    def change(frame: pd.DataFrame) -> None:
+        row = (frame["idpozo"] == str(well)) & (frame["anio"] == str(period // 100)) & (frame["mes"] == str(period % 100))
+        assert row.sum() == 1
+        frame.loc[row, "prod_pet"] = "n/d"  # unknown production is not a month without production
+
+    report, _ = run(edit(change))
+    i01 = rule(report, "I01")
+    assert rule(report, "V07").rows_affected == 1  # reported as a volume that does not convert, once
+    assert i01.rows_affected == baseline.rows_affected - 1
+    assert i01.wells_affected in (baseline.wells_affected, baseline.wells_affected - 1)
+
+
+def test_i01_still_counts_a_genuinely_idle_month_of_a_well_in_effective_extraction(valid, fixture_truth: FixtureTruth) -> None:
+    i01 = rule(valid[0], "I01")
+    assert i01.rows_affected == len(fixture_truth.effective_state_zero_rows) > 0
+
+
+def test_v16_labels_each_flagged_well_with_its_reason(valid, fixture_truth: FixtureTruth, edit) -> None:
+    assert {e["well_id"]: e["reason"] for e in rule(valid[0], "V16").examples} == {fixture_truth.swapped_coords_well: "swapped"}
+    others = [w for w in sorted(fixture_truth.wells) if w != fixture_truth.swapped_coords_well]
+
+    def change(f: pd.DataFrame) -> None:
+        f.loc[f["idpozo"] == str(others[0]), "coordenadax"] = "-10.0"
+        f.loc[f["idpozo"] == str(others[1]), "coordenadax"] = None
+
+    v16 = rule(run(edit(change))[0], "V16")
+    reasons = {e["well_id"]: e["reason"] for e in v16.examples}
+    assert reasons == {fixture_truth.swapped_coords_well: "swapped", others[0]: "outside", others[1]: "missing"}
+    assert v16.wells_affected == 3  # missing coordinates count as outside the basin (D25)
+
+
+def test_v04_examples_carry_the_well_and_the_period_only(edit) -> None:
+    def change(frame: pd.DataFrame) -> None:
+        frame.loc[frame.index[scoped(frame)][0], "mes"] = "0"
+
+    v04 = rule(run(edit(change))[0], "V04")
+    assert not v04.passed and len(v04.examples) == 1
+    assert set(v04.examples[0]) == {"well_id", "period_key"}
+
+
+def test_the_verdict_and_counts_of_a_validation_are_logged(fixture_csv: Path, malformed, caplog) -> None:
+    caplog.set_level(logging.INFO, logger="oilgas.validate")
+    report, _ = run(fixture_csv, run_key="r-log")
+    messages = [r.getMessage() for r in caplog.records if r.name == "oilgas.validate"]
+    verdict = next(m for m in messages if "r-log" in m)
+    assert "accepted" in verdict and "rejected" not in verdict
+    assert f"rows_file={report.rows_file}" in verdict and f"rows_subset={report.rows_subset}" in verdict
+    assert f"wells_subset={report.wells_subset}" in verdict
+    caplog.clear()
+    run(malformed("month_13"), run_key="r-bad")
+    verdict = next(r.getMessage() for r in caplog.records if r.name == "oilgas.validate" and "r-bad" in r.getMessage())
+    assert "rejected" in verdict and "V04" in verdict

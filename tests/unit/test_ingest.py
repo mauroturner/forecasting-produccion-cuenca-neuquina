@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import urllib.error
 from datetime import datetime
@@ -11,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from oilgas import ingest
 from oilgas.ingest import (
     DownloadError,
     ManifestEntry,
@@ -334,3 +336,111 @@ def test_quarantining_the_same_content_twice_is_idempotent(tmp_path: Path) -> No
         targets.append(quarantine(path, qdir, sha))
     assert targets[0] == targets[1]
     assert len(list(qdir.iterdir())) == 1
+
+
+# --- hardening (H1): downgrade, temporary files, headers, errors, logs -----------------------------------
+
+
+@pytest.mark.parametrize("past", ["loaded", "rejected"])
+def test_replaying_a_download_never_downgrades_an_entry_already_past_downloaded(tmp_path: Path, past: str) -> None:
+    path = tmp_path / "manifest.json"
+    settled = entry("r1", past, sha256="aa" * 32)
+    append_manifest(path, settled)
+    append_manifest(path, entry("r2", "downloaded"))
+    append_manifest(path, entry("r1", "downloaded", sha256="bb" * 32))  # the download task ran again
+    entries = read_manifest(path)
+    assert [e.run_key for e in entries] == ["r1", "r2"]
+    assert entries[0] == settled  # status and fingerprint of the settled run are kept
+    assert (last_loaded(entries) is not None) == (past == "loaded")
+
+
+def test_a_later_status_still_replaces_an_earlier_one(tmp_path: Path) -> None:
+    path = tmp_path / "manifest.json"
+    append_manifest(path, entry("r1", "downloaded", sha256="aa" * 32))
+    append_manifest(path, entry("r1", "loaded", sha256="bb" * 32))
+    assert [(e.status, e.sha256) for e in read_manifest(path)] == [("loaded", "bb" * 32)]
+    mark_manifest(path, "r1", "downloaded")  # an explicit mark is the caller's decision
+    assert read_manifest(path)[0].status == "downloaded"
+
+
+def test_each_manifest_write_uses_its_own_temporary_file_in_the_manifests_folder(tmp_path: Path, monkeypatch) -> None:
+    path = tmp_path / "raw" / "manifest.json"
+    sources: list[Path] = []
+    real_replace = os.replace
+
+    def spy(source, target):
+        sources.append(Path(source))
+        return real_replace(source, target)
+
+    monkeypatch.setattr(ingest.os, "replace", spy)
+    append_manifest(path, entry("r1", "downloaded"))
+    append_manifest(path, entry("r2", "downloaded"))
+    mark_manifest(path, "r2", "loaded")
+    assert len(sources) == 3 and len(set(sources)) == 3  # two overlapping writers never share a temporary path
+    assert all(source.parent == path.parent for source in sources)  # same folder: the rename stays atomic
+    assert [p.name for p in path.parent.iterdir()] == ["manifest.json"]
+
+
+def test_a_failed_manifest_write_leaves_the_old_manifest_and_no_temporary_file(tmp_path: Path, monkeypatch) -> None:
+    path = tmp_path / "manifest.json"
+    append_manifest(path, entry("r1", "downloaded"))
+    before = path.read_bytes()
+
+    def fail(source, target):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(ingest.os, "replace", fail)
+    with pytest.raises(OSError, match="disk full"):
+        append_manifest(path, entry("r2", "downloaded"))
+    assert path.read_bytes() == before
+    assert [p.name for p in tmp_path.iterdir()] == ["manifest.json"]
+
+
+def test_every_request_sends_the_documented_user_agent_and_no_range_or_conditional_header(server, tmp_path: Path) -> None:
+    head_remote(server.url, 5)
+    download_file(server.url, tmp_path / "resource.csv", len(BODY), 1024, 5)
+    assert server.methods() == ["HEAD", "GET"]
+    for _, _, headers in server.requests:
+        names = {name.lower(): value for name, value in headers.items()}
+        assert names["user-agent"] == "oilgas-pipeline/0.1"
+        assert not {"range", "if-none-match", "if-modified-since", "if-range", "if-match"} & names.keys()
+
+
+def test_download_other_http_errors_propagate_and_leave_no_file(server, tmp_path: Path) -> None:
+    server.mode = "error"
+    dest = tmp_path / "resource.csv"
+    with pytest.raises(urllib.error.HTTPError) as info:
+        download_file(server.url, dest, None, 1024, 5)
+    assert info.value.code == 500
+    assert not dest.exists() and not Path(str(dest) + ".part").exists()
+
+
+def test_quarantine_falls_back_to_a_move_when_the_rename_fails(tmp_path: Path, monkeypatch) -> None:
+    sha = hashlib.sha256(BODY).hexdigest()
+    qdir = tmp_path / "quarantine"
+    qdir.mkdir()
+    path = tmp_path / "resource.csv"
+    path.write_bytes(BODY)
+    stale = qdir / f"resource.{sha[:12]}.csv"
+    stale.write_bytes(b"an earlier copy")
+
+    def cross_device(source, target):
+        raise OSError("cross-device link")
+
+    monkeypatch.setattr(ingest.os, "replace", cross_device)
+    target = quarantine(path, qdir, sha)
+    assert target == stale and target.read_bytes() == BODY and not path.exists()
+
+
+def test_the_ingest_steps_are_logged(server, tmp_path: Path, caplog) -> None:
+    caplog.set_level(logging.INFO, logger="oilgas.ingest")
+    manifest = tmp_path / "manifest.json"
+    meta = head_remote(server.url, 5)
+    path, sha = download_file(server.url, tmp_path / "resource.csv", meta.size, 4096, 5)
+    append_manifest(manifest, entry("r1", "downloaded", sha256=sha))
+    append_manifest(manifest, entry("r1", "downloaded", sha256="cc" * 32))  # replaces the entry of the same run
+    messages = [r.getMessage() for r in caplog.records if r.name == "oilgas.ingest"]
+    assert any(m.startswith("HEAD ") and '"v1"' in m and f"size={len(BODY)}" in m for m in messages)
+    assert any(m.startswith("download start") and str(len(BODY)) in m for m in messages)
+    assert any(m.startswith("download end") and f"{len(BODY)} bytes" in m and sha in m for m in messages)
+    assert any("manifest" in m and "r1" in m and "replaced" in m for m in messages)

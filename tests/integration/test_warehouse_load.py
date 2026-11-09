@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import shutil
 import sqlite3
 from collections import Counter
@@ -19,6 +20,7 @@ from oilgas.validate import PreviousLoad, validate_file
 from oilgas.warehouse import (
     CheckFailedError,
     LoadResult,
+    SchemaDriftError,
     apply_schema,
     connect,
     load_validated_subset,
@@ -484,4 +486,42 @@ def test_dim_company_takes_the_name_from_the_latest_row(tmp_path: Path, valid_fr
     load_validated_subset(conn, renamed, "r1")
     assert conn.execute("SELECT company_name FROM dim_company WHERE company_key = ?", (code,)).fetchone() == ("RENAMED OPERATOR",)
     assert count(conn, "SELECT COUNT(*) FROM dim_company") == renamed["company_code"].nunique()
+    conn.close()
+
+
+# --- hardening (H1): schema drift during a load, logs ------------------------------------------------------
+
+
+def test_a_load_on_a_drifted_warehouse_names_the_table_and_keeps_the_data(tmp_path: Path, valid_frame) -> None:
+    conn = connect(tmp_path / "w.sqlite")
+    load_validated_subset(conn, valid_frame, "r1")
+    before = conn.execute("SELECT COUNT(*) FROM raw_monthly_production").fetchone()[0]
+    conn.execute("ALTER TABLE raw_monthly_production ADD COLUMN stray TEXT")
+    with pytest.raises(SchemaDriftError, match="raw_monthly_production.*stray"):
+        load_validated_subset(conn, valid_frame, "r2")  # not a generic 'table has no column' error
+    assert not conn.in_transaction
+    assert conn.execute("SELECT COUNT(*) FROM raw_monthly_production").fetchone()[0] == before
+    conn.close()
+
+
+def test_a_load_logs_its_rows_wells_revisions_and_controls(empty, valid_frame, caplog) -> None:
+    caplog.set_level(logging.INFO, logger="oilgas.warehouse")
+    result = load_validated_subset(empty, valid_frame, "r-log")
+    messages = [r.getMessage() for r in caplog.records if r.name == "oilgas.warehouse"]
+    line = next(m for m in messages if "r-log" in m)
+    assert f"rows={result.rows}" in line and f"wells={result.wells}" in line
+    assert "revised_rows=0" in line and f"controls={len(result.checks)}" in line and "violations=0" in line
+
+
+def test_a_failing_control_is_logged_with_its_count_and_sample(tmp_path: Path, valid_frame, monkeypatch, caplog) -> None:
+    conn = connect(tmp_path / "w.sqlite")
+    sql_copy = tmp_path / "sql"
+    shutil.copytree(warehouse.SQL_DIR, sql_copy)
+    (sql_copy / "checks" / "production" / "chk_always_fails.sql").write_text("SELECT 1 AS broken, 'boom' AS why;\n", encoding="utf-8")
+    monkeypatch.setattr(warehouse, "SQL_DIR", sql_copy)
+    caplog.set_level(logging.INFO, logger="oilgas.warehouse")
+    with pytest.raises(CheckFailedError):
+        load_validated_subset(conn, valid_frame, "r-bad")
+    lines = [r.getMessage() for r in caplog.records if r.name == "oilgas.warehouse" and r.levelno >= logging.ERROR]
+    assert any("chk_always_fails" in m and "violations=1" in m and "boom" in m and "r-bad" in m for m in lines)
     conn.close()
