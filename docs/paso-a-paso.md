@@ -139,7 +139,7 @@ Un agente independiente con Opus, que no construyó el proyecto, lo evaluó en m
 
 ## Lo que falta
 
-- **`airflow dags test` en Docker**, que no se pudo ejecutar porque Docker Desktop estaba apagado. El DAG está pensado para correr todos los días, pero no se corrió; lo mismo vale para el compose endurecido y la imagen con los `==` de `requirements.txt`, que no se construyeron.
+- **`airflow dags test` en Docker**, que no se pudo ejecutar porque Docker Desktop estaba apagado. Se corrió después, el 9 de noviembre de 2026, cuando el dueño encendió Docker: `pytest -m docker` (tests/e2e/test_airflow_docker.py) construyó la imagen de `airflow/`, levantó la base y el servicio de inicialización del compose y corrió `airflow dags test oilgas_monthly_production` en modo rápido sobre una publicación sintética: terminó con éxito en 57 segundos, con las tablas y el diseño HTML escritos (Docker Desktop 28.5.1, Airflow 3.4.0, el 9 de noviembre de 2026). Con eso se construyeron también el compose endurecido y la imagen con los `==` de `requirements.txt`.
 - **El `.pbix`.** El diseño en HTML dice cómo armarlo; armarlo en Power BI Desktop es manual.
 - **La memoria máxima (RNF03)**, que no se midió.
 - **El texto del sitio** (alcance, «1 CSV por año», el modelo en uso, la promesa de un tablero que se arma solo y los pasos de «Con IA, de punta a punta»), que decide el dueño: `SITE-UPDATES.md`.

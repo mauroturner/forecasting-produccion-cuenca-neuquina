@@ -3,6 +3,7 @@ data/warehouse/
 data/quick/
 data/interim/
 airflow/logs/
+airflow/config/
 airflow/.env
 reports/validation/history/
 .venv/

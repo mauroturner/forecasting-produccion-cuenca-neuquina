@@ -106,7 +106,7 @@ docker compose up -d
 - **Permisos de la carpeta de registros.** `.env` debe tener `AIRFLOW_UID=50000`; si `airflow-init` se queja de permisos sobre `logs/`, borrar `airflow/logs/` (no se versiona) y repetir `docker compose up airflow-init`.
 - **El DAG no aparece.** `docker compose logs airflow-dag-processor`: un error de importación aparece ahí. El DAG es solo el cableado de `oilgas.pipeline.TASKS`; para saber si el problema es del DAG o del proyecto, correr `python -m oilgas run` en Windows.
 
-`airflow dags test` no se ejecutó dentro de este proyecto porque Docker Desktop no estaba encendido al construirlo (decisión D35, pendiente del dueño); el DAG se verifica de forma estática con pruebas sobre el árbol del código.
+`airflow dags test` se prueba con `pytest -m docker` desde la carpeta del proyecto: arma una configuración con rutas absolutas del contenedor (`/opt/oilgas/data/docker_test/`), corre el DAG en modo rápido y borra lo que escribió. El modo rápido de la CLI, en cambio, se corre desde la carpeta del proyecto, porque `local_path` es relativo a la carpeta desde la que se corre. El 9 de noviembre de 2026 la prueba terminó con éxito en 57 segundos (D35).
 
 ## R9 `database is locked`
 

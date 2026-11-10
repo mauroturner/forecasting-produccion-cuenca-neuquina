@@ -114,8 +114,11 @@ También comprobó que las correcciones no cambiaron salidas que nadie pidió ca
 
 El commit `109a1de` cambia el compose y la imagen de Airflow, así que se revisó solo, en una copia aparte, con dos lentes (riesgo y resiliencia). Quedó aprobado, sin correcciones, con cinco observaciones que no bloquean y quedan para después: la descarga sigue siendo por HTTP sin un hash de confianza (ya dicho en el README); las claves podrían pasar a secretos de Docker; los `==` de la imagen pueden chocar con las restricciones de Airflow 3.4 al construirla (D41); la tabla de corridas usa un hash de respaldo si falta el del manifiesto; y la traza que se guarda en el estado no tiene tope de tamaño.
 
+## La prueba en Docker (AC19)
+
+Después de la evaluación, con Docker Desktop encendido por el dueño, `pytest -m docker` (tests/e2e/test_airflow_docker.py) construyó la imagen de `airflow/`, levantó la base y el servicio de inicialización del compose y corrió `airflow dags test oilgas_monthly_production` en modo rápido sobre una publicación sintética: terminó con éxito en 57 segundos, con las tablas y el diseño HTML escritos (Docker Desktop 28.5.1, Airflow 3.4.0, el 9 de noviembre de 2026). Con eso quedaron probados también el compose endurecido y la imagen con los `==` (D41). Antes, una corrida a mano de `airflow dags test` con la configuración rápida tal cual falló en la primera tarea: `local_path` es relativo y dentro del contenedor el directorio de trabajo es `/opt/airflow`. No es un defecto del camino documentado (el runbook pide correr el modo rápido desde la carpeta del proyecto, y la prueba de Docker usa rutas absolutas), pero queda anotado en el runbook.
+
 ## Lo que queda
 
-- AC19 sigue sin probarse: falta correr `airflow dags test` en Docker, y con ello probar el compose endurecido y la imagen con los `==` (D41).
 - El pico de memoria (RNF03) no se midió y la suite rápida supera por unos segundos los 180 s de RNF02 (A11).
 - El `.pbix` sigue sin armarse: el diseño en HTML dice cómo.
