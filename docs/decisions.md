@@ -473,3 +473,12 @@ Estados: **vigente**, **pendiente del dueño**, **reemplazada por Dxx**.
 - **Motivo**: que la documentación no diga más que lo que se hizo, y que lo que se decidió no tocar tenga su motivo escrito.
 - **Afecta**: README; `docs/paso-a-paso.md`; `docs/model-card.md`; `docs/evaluation.md`; `docs/plan.md`; `SITE-UPDATES.md`; `LANDING-EXPANSION.md`.
 - **Quién**: agente de programación (Sonnet), por indicación de quien orquesta. **Estado**: vigente; una nueva comprobación independiente dio los tres bloqueantes por corregidos (`docs/evaluation.md`).
+
+## D44 `python-dateutil` fijado en 2.9.0.post0: la 4.0.0 rompía las dependencias de Airflow en la imagen
+
+- **Contexto**: el proyecto 02, al correr `pip check` dentro de su imagen de Airflow 3.4.0, encontró que `python-dateutil==4.0.0` choca con seis dependencias de Airflow (aiobotocore, botocore, google-cloud-bigquery, flask-appbuilder, gcloud-aio-bigquery y adal piden una versión menor que 3). Este proyecto tenía el mismo pin: `pip install` lo aceptaba sin avisar y la prueba en Docker no lo miraba.
+- **Opciones**: bajar el pin a la última 2.x y sumar `six`, que esa versión necesita; dejar la 4.0.0 y aceptar el conflicto; o sacar `python-dateutil` de `requirements.txt` y dejar que lo resuelva pip.
+- **Decisión**: `python-dateutil==2.9.0.post0` y `six==1.17.0` en `requirements.txt` (pandas pide `python-dateutil>=2.8.2`, que se cumple); la prueba en Docker (`tests/e2e/test_airflow_docker.py`) ahora corre `pip check` en la imagen antes del `dags test` y falla si encuentra un requisito roto. Con la 4.0.0 la prueba dio los seis conflictos; con el pin nuevo, ninguno.
+- **Motivo**: un conflicto que pip acepta en silencio puede romper Airflow en cualquier tarea que use esas librerías; fijarlo y comprobarlo en la imagen es lo que hace el proyecto 02 (su D55). Sacar el pin dejaría la instalación sin versión exacta, en contra de D17.
+- **Afecta**: `requirements.txt`; `tests/e2e/test_airflow_docker.py`.
+- **Quién**: quien orquesta, a partir del hallazgo del proyecto 02. **Estado**: vigente.

@@ -58,6 +58,9 @@ def test_the_dag_runs_in_quick_mode_with_airflow_dags_test(engine) -> None:
     try:
         docker("compose", "build")
         docker("compose", "up", "airflow-init")
+        # every pin of requirements.txt installs next to Airflow's own dependencies on the Python of the image, with none broken
+        consistent = docker("compose", "--profile", "debug", "run", "--rm", "airflow-cli", "bash", "-c", "pip check", check=False)
+        assert consistent.returncode == 0 and "No broken requirements found" in consistent.stdout, consistent.stdout[-2000:]
         done = docker("compose", "--profile", "debug", "run", "--rm", "airflow-cli", "airflow", "dags", "test", "oilgas_monthly_production", check=False)
         assert done.returncode == 0, done.stdout[-3000:] + done.stderr[-3000:]
         assert (WORK / "powerbi" / "fact_forecast.parquet").exists() and (WORK / "powerbi-design.html").exists()
