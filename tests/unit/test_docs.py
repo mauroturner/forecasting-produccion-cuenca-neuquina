@@ -15,8 +15,20 @@ from oilgas.reporting import FLUID_ES, render_results_markdown
 from oilgas.schema import SOURCE_COLUMNS
 
 README_HEADINGS = [
-    "El problema", "La solución", "Los resultados", "En qué consiste", "Los datos", "Los algoritmos", "El producto",
-    "La documentación", "Con IA, de punta a punta", "Para qué sirve", "Cómo correrlo de punta a punta", "Paso a paso", "Fuente y licencia",
+    "1. Resumen ejecutivo", "2. Datasets y preparación", "3. Arquitectura y metodología", "4. Producto final", "5. Conclusión",
+    "Resultados completos de la corrida", "Cómo correrlo de punta a punta", "Paso a paso", "Fuente y licencia",
+]
+README_SUBSECTIONS = [
+    "1.1 Problema de negocio y solución", "1.2 Criterios de éxito e impacto",
+    "2.1 Fuentes, alcance y granularidad", "2.2 Saneamiento y reglas de calidad",
+    "3.1 Fuente e ingesta", "3.2 Orquestación y transformación", "3.3 Almacenamiento y modelado de datos",
+    "3.4 Experimentación y Machine Learning", "3.5 Consumo y gobernanza",
+    "4.1 Entregables operativos", "4.2 Lectura de resultados actuales",
+    "5.1 Evaluación frente a criterios de éxito", "5.2 Limitaciones metodológicas", "5.3 Trabajo futuro",
+]
+README_ML_SUBSECTIONS = [
+    "3.4.1 Ingeniería de características y línea base (baseline)", "3.4.2 Decisiones de modelado y ablación (ADR)",
+    "3.4.3 Protocolo de validación (backtesting / cross-validation)",
 ]
 DECISION_FIELDS = ("Contexto", "Opciones", "Decisión", "Motivo", "Afecta", "Quién")
 START, END = "<!-- results:start -->", "<!-- results:end -->"
@@ -33,9 +45,16 @@ def read(project_root: Path, name: str) -> str:
     return (project_root / "docs" / name).read_text(encoding="utf-8")
 
 
-def test_the_readme_has_the_headings_of_the_plan_in_that_order(readme: str) -> None:
+def test_the_readme_follows_the_numbered_outline_of_the_portfolio_in_that_order(readme: str) -> None:
+    """The structure of ESTRUCTURA-PROYECTOS.md: five numbered sections with their sub-sections, then the appendices."""
     assert readme.startswith("# Producción de petróleo y gas, pozo por pozo\n")
     assert re.findall(r"^## (.+)$", readme, flags=re.MULTILINE) == README_HEADINGS
+    assert re.findall(r"^### (\d.+)$", readme, flags=re.MULTILINE) == README_SUBSECTIONS
+    assert re.findall(r"^#### (\d.+)$", readme, flags=re.MULTILINE) == README_ML_SUBSECTIONS
+
+
+def test_the_readme_has_no_section_about_how_ai_built_the_project(readme: str) -> None:
+    assert "Con IA, de punta a punta" not in readme
 
 
 def test_the_readme_gives_the_attribution_of_the_licence(readme: str) -> None:
