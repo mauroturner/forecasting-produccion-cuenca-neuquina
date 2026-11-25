@@ -314,3 +314,5 @@ Every operation, with its failures and how to recover, is in the [runbook](docs/
 Data source: Secretaría de Energía de la Nación (Argentina), «Producción de petróleo y gas por pozo (Capítulo IV)», datos.gob.ar, CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Changes: filtered by basin and resource type, records validated, Arps decline curves estimated, and projections and P10/P50/P90 bands calculated.
 
 The raw data is not versioned: the flow downloads it. The well fracture file («Datos de fractura de pozos, adjunto IV») comes from the same body under CC BY 4.0, and its official note calls the data preliminary and subject to review.
+
+The code is under the [MIT licence](LICENSE); the source data keeps the licence given above.

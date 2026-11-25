@@ -350,3 +350,5 @@ El proyecto se construyó en unidades de trabajo, cada una con sus pruebas y su 
 Fuente de datos: Secretaría de Energía de la Nación, «Producción de petróleo y gas por pozo (Capítulo IV)», datos.gob.ar, licencia CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Modificaciones: se filtró por cuenca y tipo de recurso, se validaron registros, se estimaron curvas de declinación de Arps y se calcularon proyecciones y bandas P10/P50/P90.
 
 Los datos crudos no se versionan: el flujo los descarga. El archivo de fractura de pozos (dataset «Datos de fractura de pozos, adjunto IV») es del mismo organismo y también de licencia CC BY 4.0; se describe como preliminar porque su nota oficial dice «datos preliminares sujetos a revisión».
+
+El código está bajo la [licencia MIT](LICENSE); los datos de origen conservan la licencia indicada arriba.
