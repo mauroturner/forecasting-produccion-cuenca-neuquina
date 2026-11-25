@@ -38,7 +38,7 @@ IMAGE = re.compile(r"!\[[^\]]*\]\(([^)\s]+)\)")
 
 @pytest.fixture(scope="module")
 def readme(project_root: Path) -> str:
-    return (project_root / "README.md").read_text(encoding="utf-8")
+    return (project_root / "README.es.md").read_text(encoding="utf-8")
 
 
 def read(project_root: Path, name: str) -> str:
@@ -63,6 +63,7 @@ def test_the_readme_gives_the_attribution_of_the_licence(readme: str) -> None:
 
 
 def test_the_results_block_of_the_readme_is_the_summary_of_the_run(project_root: Path, readme: str) -> None:
+    check_the_english_readme(project_root, readme)
     assert readme.count(START) == 1 and readme.count(END) == 1
     block = readme.split(START)[1].split(END)[0]
     assert block.strip() == (project_root / "reports" / "backtest_summary.md").read_text(encoding="utf-8").strip()
@@ -130,7 +131,7 @@ def test_every_document_the_readme_lists_exists(project_root: Path, readme: str)
 
 
 def test_relative_links_and_images_point_to_files_that_exist(project_root: Path) -> None:
-    documents = [project_root / "README.md", *sorted((project_root / "docs").glob("*.md"))]
+    documents = [project_root / "README.md", project_root / "README.es.md", *sorted((project_root / "docs").glob("*.md"))]
     broken = []
     for document in documents:
         text = document.read_text(encoding="utf-8")
@@ -173,3 +174,12 @@ def test_the_model_card_tables_are_the_ones_generated_from_the_summary(project_r
     document = json.loads((project_root / "reports" / "backtest_summary.json").read_text(encoding="utf-8"))
     block = text.split(METHODS_START)[1].split(METHODS_END)[0]
     assert block.strip() == render_method_tables(pd.DataFrame(document["summary"])).strip()
+
+
+def check_the_english_readme(project_root: Path, readme: str) -> None:
+    """README.md is the page of the project in English; README.es.md is the full one, which ``docs-sync`` and the other tests check."""
+    english = (project_root / "README.md").read_text(encoding="utf-8")
+    assert "**English** · [Español](README.es.md)" in english and "[English](README.md) · **Español**" in readme
+    assert english.count("2 of 2 success criteria met") == 2 and "undefined" not in english and "@gmail" not in english
+    for target in ("docs/screenshots/dashboard.png", "docs/screenshots/demo.png", "docs/model-card.md", "docs/evaluation.md"):
+        assert f"]({target})" in english and (project_root / target).is_file(), target
